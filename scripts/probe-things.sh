@@ -8,10 +8,12 @@
 # Dritter Teil: liest ueber die Lesewerkzeuge (list-todos, search-todos,
 # todos-by-tag, todos-by-project, todos-by-area) die eben angelegten Todos
 # zurueck. Nutzt einen vorhandenen Tag und Bereich, legt keine neuen an.
+# Vierter Teil, nur mit Token in der Umgebung: update auf das Probe-Todo.
+#   op run --env-file="$HOME/.config/things-mcp/op.env" -- scripts/probe-things.sh
 # Things muss laufen. Nur macOS. Aufruf aus dem Checkout: scripts/probe-things.sh
 #
-# Test:     ja - echter Lauf gegen Things 3, Ausgabe im PR (Teil 1 in #2, Token-Weg in #3, Datum in #4, Lesen in #5) · netztaucher/things-mcp#5
-# Rueckweg: ja - trap loescht alle Probe-Todos und das Probe-Projekt (Things-Papierkorb), im Lauf belegt · netztaucher/things-mcp#5
+# Test:     ja - echter Lauf gegen Things 3, Ausgabe im PR (Teil 1 in #2, Token-Weg in #3, Datum in #4, Lesen in #5, update mit Token in #6) · netztaucher/things-mcp#6
+# Rueckweg: ja - trap loescht alle Probe-Todos und das Probe-Projekt (Things-Papierkorb), im Lauf belegt · netztaucher/things-mcp#6
 
 set -euo pipefail
 
@@ -48,7 +50,7 @@ JXA
 
 delete_probe() {
   local ids t
-  for t in "$TITLE" "$TITLE2" "$TITLE2 kontrolle" "$PTODO"; do
+  for t in "$TITLE" "$TITLE geaendert" "$TITLE2" "$TITLE2 kontrolle" "$PTODO"; do
   ids="$(read_back "$t" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).map(t=>t.id).join(" ")))')"
   for id in $ids; do
     osascript -l JavaScript - "$id" <<'JXA' >/dev/null
@@ -204,4 +206,47 @@ await client.close();
 process.exit(ok ? 0 : 1);
 NODE
 
-echo "5. loeschen (trap)"
+echo "5. update mit echtem Token (nur wenn THINGS_AUTH_TOKEN gesetzt, z. B. unter op run)"
+if [ -z "${THINGS_AUTH_TOKEN:-}" ]; then
+  echo "   uebersprungen: THINGS_AUTH_TOKEN nicht gesetzt"
+else
+  PROBE_ID="$(read_back "$TITLE" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s)[0]?.id ?? ""))')"
+  # Das Token geht nur ueber die Umgebung an dist/index.js. Der StdioClientTransport
+  # erbt die Umgebung nicht von selbst, deshalb env ausdruecklich.
+  PROBE_ID="$PROBE_ID" PROBE_TITLE="$TITLE" node --input-type=module <<'NODE'
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+const e = process.env;
+const client = new Client({ name: "probe-things", version: "0" });
+await client.connect(
+  new StdioClientTransport({ command: process.execPath, args: ["dist/index.js"], env: { ...process.env } })
+);
+const r = await client.callTool({
+  name: "update",
+  arguments: { id: e.PROBE_ID, title: `${e.PROBE_TITLE} geaendert`, "append-notes": "Zeile drei per update" },
+});
+const text = r.content.map((c) => c.text ?? "").join("\n");
+console.log("   Antwort:", text);
+// Vergleich im Prozess, der Wert wird nie ausgegeben.
+const leak = text.includes(e.THINGS_AUTH_TOKEN);
+console.log(`   ${leak ? "FEHLER: Token in der Antwort" : "OK: Token in keiner Antwort"}`);
+await client.close();
+process.exit(r.isError || leak ? 1 : 0);
+NODE
+  FOUND3=""
+  for _ in 1 2 3 4 5; do
+    sleep 1
+    FOUND3="$(read_back "$TITLE geaendert")"
+    [ "$FOUND3" != "[]" ] && break
+  done
+  node -e '
+const [found, id] = process.argv.slice(1);
+const hits = JSON.parse(found);
+const t = hits[0];
+const ok = hits.length === 1 && t.id === id && t.notes.endsWith("Zeile drei per update");
+console.log(ok ? "   OK: Titel geaendert, Notiz ergaenzt, gleiche id " + id : "   FEHLER: update nicht angekommen");
+process.exit(ok ? 0 : 1);
+' "$FOUND3" "$PROBE_ID"
+fi
+
+echo "6. loeschen (trap)"

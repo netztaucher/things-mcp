@@ -47,22 +47,21 @@ Grenzen: Tag, Projekt, Bereich und Suche liefern nur offene Todos, Things fuehrt
 
 Einrichten, einmalig:
 
-1. Things → Einstellungen → Allgemein → Things-URLs aktivieren → Verwalten, Token kopieren.
-2. In der 1Password-App einen Eintrag anlegen, Kategorie API-Zugangsdaten, Titel `Things URL Token`, Tresor `Personal`, Token ins Feld `credential` einfuegen. Nicht per `op item create ... credential=<wert>`: dann steht der Wert in Prozessliste und Shell-Historie.
-3. Referenzdatei anlegen, sie enthaelt nur den Verweis, keinen Wert:
+1. Das Token liegt in 1Password unter `op://NT-Brain/infra-api-keys/THINGS_AUTH_TOKEN` (Things → Einstellungen → Allgemein → Things-URLs aktivieren → Verwalten). Neu setzen nur in der 1Password-App, nicht per `op item edit ... THINGS_AUTH_TOKEN=<wert>`: dann steht der Wert in Prozessliste und Shell-Historie. Rotation nach Lex Clavis.
+2. Referenzdatei anlegen, sie enthaelt nur den Verweis, keinen Wert:
    ```bash
-   mkdir -p ~/.config/things-mcp && printf '%s\n' 'THINGS_AUTH_TOKEN=op://Personal/Things URL Token/credential' > ~/.config/things-mcp/op.env
+   mkdir -p ~/.config/things-mcp && printf '%s\n' 'THINGS_AUTH_TOKEN=op://NT-Brain/infra-api-keys/THINGS_AUTH_TOKEN' > ~/.config/things-mcp/op.env
    ```
-4. MCP-Konfiguration (Pfad zu `op` absolut, GUI-Apps kennen den Homebrew-PATH nicht):
+3. MCP-Konfiguration (Pfad zu `op` absolut, GUI-Apps kennen den Homebrew-PATH nicht):
    ```json
    "things": {
      "command": "/opt/homebrew/bin/op",
      "args": ["run", "--env-file=/Users/<nutzer>/.config/things-mcp/op.env", "--", "node", "<checkout>/dist/index.js"]
    }
    ```
-   `op run` loest den Verweis beim Start auf (Touch ID) und gibt das Token nur als Umgebungsvariable an `node`. Ausgaben, die den Wert enthalten, maskiert `op run` zusaetzlich.
+   `op run` loest den Verweis beim Start auf (Touch ID) und gibt das Token nur als Umgebungsvariable an `node`. Ausgaben, die den Wert enthalten, maskiert `op run` zusaetzlich. Gemessen: MCP ueber stdio laeuft durch `op run` unveraendert, der Start dauert rund 7 s statt unter 1 s.
 
-Pruefen ohne den Wert zu sehen:
+Pruefen ohne den Wert zu sehen (Stand 2026-10-16: 22 Zeichen, sha256-12 `4dce2791ce8e`):
 ```bash
 op run --env-file="$HOME/.config/things-mcp/op.env" -- sh -c 'printf %s "$THINGS_AUTH_TOKEN" | shasum -a 256 | cut -c1-12'
 ```
@@ -71,6 +70,8 @@ Wo das Token sichtbar ist (gemessen 2026-10-16, macOS 27.0.1, `scripts/probe-thi
 - Prozessargumente sind unter macOS fuer alle lokalen Nutzer lesbar (`ps -axww -o args`). Upstream gibt jede URL als Argument an `open`, mit Token also auch das Token, etwa 70 bis 100 ms lang. Dieser Fork gibt URLs mit `auth-token` deshalb per stdin an `osascript`, das sie ueber `NSWorkspace` oeffnet (`src/opener.ts`). Die Probe startet beide Wege und liest sofort `ps -p <pid>`: `open` zeigt die URL, der stdin-Weg nicht.
 - Umgebungsvariablen zeigt `ps` ohne root nicht, auch nicht fuer eigene Prozesse. root und Endpoint-Security-Werkzeuge sehen sie.
 - URLs ohne Token gehen weiter an `open`.
+
+Echter Lauf mit Token: `op run --env-file="$HOME/.config/things-mcp/op.env" -- scripts/probe-things.sh`. Schritt 5 aendert das Probe-Todo per `update` und prueft, dass das Token in keiner Antwort steht. Ohne Token wird der Schritt uebersprungen.
 
 ## Features
 

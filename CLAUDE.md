@@ -167,7 +167,7 @@ Tests are located in `test/` directory and use Vitest. `pnpm test` runs `tsc` fi
 - `test/server.test.ts`: end to end over stdio against `dist/index.js`; a stub `open` in `PATH` records the URLs instead of opening Things (`test/helpers/server-harness.ts`)
 - `test/url-construction.test.ts`: legacy, only exercises `URLSearchParams` itself
 
-Against real Things: `scripts/probe-things.sh` creates a todo through `dist/index.js`, reads it back via AppleScript, compares title and notes, checks both opener routes against `ps -p <pid>`, reads the todos back through all five read tools, and deletes everything it created.
+Against real Things: `scripts/probe-things.sh` creates a todo through `dist/index.js`, reads it back via AppleScript, compares title and notes, checks both opener routes against `ps -p <pid>`, reads the todos back through all five read tools, runs `update` with the real token when `THINGS_AUTH_TOKEN` is set (start it under `op run`, see readme), and deletes everything it created.
 
 ## Project Structure
 

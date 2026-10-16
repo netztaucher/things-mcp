@@ -55,7 +55,9 @@ node dist/index.js --help       # Show help
 
 ### Module layout (`src/`)
 
-- `index.ts`: startup validation, CLI flags, and the `server.tool()` registrations. Handlers only call builders and `openThingsURL`.
+- `index.ts`: creates the server, CLI flags, startup validation, stdio transport.
+- `tools/<tool>.ts`: one module per tool (`registerAddTodo`, ...), `tools/index.ts` registers them in the original order. Handlers only call builders and `openThingsURL`.
+- `paths.ts`: `evaluateScriptPath` (resolved from `dist/` to `../scripts/things-evaluate-url.jxa`), `evaluateBinary`.
 - `opener.ts`: `openThingsURL`. URLs without token go as array argument to `open`; URLs with `auth-token` go via stdin to `osascript` (NSWorkspace), so the token never appears in process arguments.
 - `auth.ts`: `requireAuthToken`, `optionalAuthToken`. Token only from `THINGS_AUTH_TOKEN`; messages name the variable, never the value.
 - `schemas.ts`: all Zod schemas; the `*Shape` objects are passed to `server.tool()` unchanged, the inferred types feed the builders.
@@ -81,7 +83,7 @@ The `evaluate` tool shells out to `scripts/things-evaluate-url.jxa` (JXA = JavaS
 - Requires executable permissions (`chmod +x scripts/things-evaluate-url.jxa`)
 - Returns JSON representation of Things items (todos, projects, areas, tags)
 
-**Location**: `evaluateScriptPath` and the `evaluate` tool in `src/index.ts`
+**Location**: `evaluateScriptPath` in `src/paths.ts`, the tool in `src/tools/evaluate.ts`
 
 ### Authorization Token Handling
 
@@ -161,7 +163,9 @@ Against real Things: `scripts/probe-things.sh` creates a todo through `dist/inde
 ```
 things-mcp/
 ├── src/
-│   ├── index.ts                 # Startup, openThingsURL, tool registrations
+│   ├── index.ts                 # Server, CLI flags, startup validation
+│   ├── tools/                   # One module per MCP tool, tools/index.ts registers all
+│   ├── paths.ts                 # JXA script path, osascript binary
 │   ├── schemas.ts               # Zod schemas
 │   ├── urls.ts                  # Pure things:/// URL builders
 │   ├── payloads.ts              # JSON payloads for things:///json

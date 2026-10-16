@@ -63,6 +63,7 @@ node dist/index.js --help       # Show help
 - `schemas.ts`: all Zod schemas; the `*Shape` objects are passed to `server.tool()` unchanged, the inferred types feed the builders.
 - `urls.ts`: pure URL builders (`buildAddTodoUrl`, `buildAddProjectUrl`, `buildUpdateUrl`, `buildUpdateProjectUrl`, `buildJsonUrl`, `buildShowUrl`, `buildSearchUrl`). No process, no Things, directly testable.
 - `payloads.ts`: JSON payloads for `things:///json` (`buildChecklistItems`, `buildTodo`, `buildProjectItems`, `buildStructuredProjectPayload`, `buildRestructurePayload`).
+- `when.ts`: `whenSchema` for every `when` field. Keywords and English natural language pass; anything that looks like a date must be `YYYY-MM-DD` or `YYYY-MM-DD@HH:MM` and a real calendar day.
 - `things-url.ts`: `thingsQuery()`, encodes spaces as `%20` (Things takes `+` literally).
 
 ### Things URL Scheme Integration
@@ -152,6 +153,7 @@ Tests are located in `test/` directory and use Vitest. `pnpm test` runs `tsc` fi
 
 - `test/urls.test.ts`, `test/payloads.test.ts`: the real builders from `src/`
 - `test/things-url.test.ts`: `%20` encoding
+- `test/when.test.ts`: accepted and rejected `when` values, rejected before anything is opened
 - `test/token.test.ts`: no `auth-token` parameter, token in no response, error or process argument (stub `osascript` records stdin)
 - `test/server.test.ts`: end to end over stdio against `dist/index.js`; a stub `open` in `PATH` records the URLs instead of opening Things (`test/helpers/server-harness.ts`)
 - `test/url-construction.test.ts`: legacy, only exercises `URLSearchParams` itself
@@ -166,6 +168,7 @@ things-mcp/
 │   ├── index.ts                 # Server, CLI flags, startup validation
 │   ├── tools/                   # One module per MCP tool, tools/index.ts registers all
 │   ├── paths.ts                 # JXA script path, osascript binary
+│   ├── when.ts                  # when validation (YYYY-MM-DD etc.)
 │   ├── schemas.ts               # Zod schemas
 │   ├── urls.ts                  # Pure things:/// URL builders
 │   ├── payloads.ts              # JSON payloads for things:///json

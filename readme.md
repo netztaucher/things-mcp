@@ -10,6 +10,8 @@ Dieser Fork basiert auf [kevinberny/things-mcp](https://github.com/kevinberny/th
 Abweichungen vom Upstream:
 - Leerzeichen gehen als `%20` an Things, nicht als `+` (`src/things-url.ts`, jimfilippou/things-mcp#4, Fix aus #2). Test: `test/things-url.test.ts`.
 - `evaluate` startet `osascript` per `execFile` statt `exec`. Die ID oder URL geht als Argument, nicht durch eine Shell.
+- URL-Bau steckt in reinen Funktionen (`src/urls.ts`, `src/payloads.ts`), die Tests importieren sie aus `src`. `test/server.test.ts` startet `dist/index.js` als MCP-Server und faengt die URLs an `open` ab. `pnpm test` baut vorher.
+- Probe gegen echtes Things: `scripts/probe-things.sh` legt ueber `dist/index.js` ein Todo an, liest es per AppleScript zurueck und loescht es wieder.
 
 Bauen und einbinden:
 

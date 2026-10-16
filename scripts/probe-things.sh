@@ -1,13 +1,14 @@
 #!/bin/bash
 # Probe gegen echtes Things 3: legt ueber dist/index.js (MCP, stdio) ein Todo an,
-# liest es per AppleScript zurueck, vergleicht Titel und Notiz und loescht es.
+# liest es per AppleScript zurueck, vergleicht Titel, Notiz und festes Datum
+# (when YYYY-MM-DD) und loescht es.
 # Zweiter Teil: startet beide Oeffner-Wege aus dist/opener.js und liest sofort
 # ps -p <pid>. Kontrolle (open, ohne Token) muss die URL zeigen, der stdin-Weg
 # (osascript, Attrappen-Token) nicht. Kein echtes Token noetig.
 # Things muss laufen. Nur macOS. Aufruf aus dem Checkout: scripts/probe-things.sh
 #
-# Test:     ja - echter Lauf gegen Things 3, Ausgabe im PR (Teil 1 in #2, Token-Weg in #3) · netztaucher/things-mcp#3
-# Rueckweg: ja - trap loescht alle Probe-Todos (Things-Papierkorb), im Lauf belegt · netztaucher/things-mcp#3
+# Test:     ja - echter Lauf gegen Things 3, Ausgabe im PR (Teil 1 in #2, Token-Weg in #3, Datum in #4) · netztaucher/things-mcp#4
+# Rueckweg: ja - trap loescht alle Probe-Todos (Things-Papierkorb), im Lauf belegt · netztaucher/things-mcp#4
 
 set -euo pipefail
 
@@ -19,6 +20,8 @@ TITLE="mcp-probe ${STAMP} a b+c & x"
 TITLE2="mcp-probe mcpprobe${STAMP//-/}tokenweg"
 NOTES="Zeile eins mit Leerzeichen
 Zeile zwei: 100% + mehr"
+# Festes Datum in 40 Tagen, als when YYYY-MM-DD.
+WHEN="$(date -v+40d +%Y-%m-%d)"
 
 # Liest Todos mit genau diesem Titel als JSON (id, name, notes). Titel per argv, nicht per Shell.
 read_back() {
@@ -29,7 +32,8 @@ function run() {
   const name = app.systemAttribute("PROBE_NAME");
   const things = Application("Things3");
   const hits = things.toDos.whose({ name: name })();
-  return JSON.stringify(hits.map((t) => ({ id: t.id(), name: t.name(), notes: t.notes() })));
+  const day = (d) => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : null;
+  return JSON.stringify(hits.map((t) => ({ id: t.id(), name: t.name(), notes: t.notes(), activation: day(t.activationDate()) })));
 }
 JXA
 }
@@ -52,14 +56,14 @@ JXA
 trap delete_probe EXIT
 
 echo "1. anlegen ueber dist/index.js (add-todo)"
-node --input-type=module - "$TITLE" "$NOTES" <<'NODE'
+node --input-type=module - "$TITLE" "$NOTES" "$WHEN" <<'NODE'
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-const [title, notes] = process.argv.slice(2);
+const [title, notes, when] = process.argv.slice(2);
 const transport = new StdioClientTransport({ command: process.execPath, args: ["dist/index.js"] });
 const client = new Client({ name: "probe-things", version: "0" });
 await client.connect(transport);
-const result = await client.callTool({ name: "add-todo", arguments: { title, notes } });
+const result = await client.callTool({ name: "add-todo", arguments: { title, notes, when } });
 console.log("   Antwort:", result.content[0].text);
 await client.close();
 NODE
@@ -73,17 +77,18 @@ for _ in 1 2 3 4 5; do
 done
 
 node -e '
-const [found, title, notes] = process.argv.slice(1);
+const [found, title, notes, when] = process.argv.slice(1);
 const hits = JSON.parse(found);
 if (hits.length !== 1) { console.error("   FEHLER: " + hits.length + " Treffer statt 1"); process.exit(1); }
 const t = hits[0];
-const ok = t.name === title && t.notes === notes;
+const ok = t.name === title && t.notes === notes && t.activation === when;
 console.log("   id:   " + t.id);
 console.log("   name: " + JSON.stringify(t.name));
 console.log("   notes:" + JSON.stringify(t.notes));
-console.log(ok ? "   OK: Titel und Notiz stimmen zeichengenau" : "   FEHLER: Abweichung");
+console.log("   when: " + when + " -> Aktivierung " + t.activation);
+console.log(ok ? "   OK: Titel, Notiz und Datum stimmen" : "   FEHLER: Abweichung");
 process.exit(ok ? 0 : 1);
-' "$FOUND" "$TITLE" "$NOTES"
+' "$FOUND" "$TITLE" "$NOTES" "$WHEN"
 
 echo "3. Token-Weg: beide Oeffner-Wege starten und sofort per ps -p lesen"
 # Kontrolle: URL ohne Token geht an open und muss in ps stehen, sonst misst

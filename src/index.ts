@@ -3,7 +3,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { existsSync } from "fs";
-import { evaluateBinary, evaluateScriptPath } from "./paths.js";
+import { evaluateBinary, evaluateScriptPath, readScriptPath } from "./paths.js";
 import { registerTools } from "./tools/index.js";
 
 const server = new McpServer({
@@ -42,11 +42,13 @@ Documentation: https://github.com/kevinberny/things-mcp
   process.exit(0);
 }
 
-// Validate JXA script exists at startup
-if (!existsSync(evaluateScriptPath)) {
-  console.error(`ERROR: JXA script not found at: ${evaluateScriptPath}`);
-  console.error("Make sure the scripts/things-evaluate-url.jxa file exists and is accessible.");
-  process.exit(1);
+// Validate JXA scripts exist at startup
+for (const script of [evaluateScriptPath, readScriptPath]) {
+  if (!existsSync(script)) {
+    console.error(`ERROR: JXA script not found at: ${script}`);
+    console.error("Make sure the scripts/ directory sits next to dist/ and is readable.");
+    process.exit(1);
+  }
 }
 
 // Validate osascript binary exists

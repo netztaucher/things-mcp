@@ -55,7 +55,9 @@ node dist/index.js --help       # Show help
 
 ### Module layout (`src/`)
 
-- `index.ts`: startup validation, CLI flags, `openThingsURL` (spawns `open` with the URL as array argument), `resolveAuthToken`, and the `server.tool()` registrations. Handlers only call builders and `openThingsURL`.
+- `index.ts`: startup validation, CLI flags, and the `server.tool()` registrations. Handlers only call builders and `openThingsURL`.
+- `opener.ts`: `openThingsURL`. URLs without token go as array argument to `open`; URLs with `auth-token` go via stdin to `osascript` (NSWorkspace), so the token never appears in process arguments.
+- `auth.ts`: `requireAuthToken`, `optionalAuthToken`. Token only from `THINGS_AUTH_TOKEN`; messages name the variable, never the value.
 - `schemas.ts`: all Zod schemas; the `*Shape` objects are passed to `server.tool()` unchanged, the inferred types feed the builders.
 - `urls.ts`: pure URL builders (`buildAddTodoUrl`, `buildAddProjectUrl`, `buildUpdateUrl`, `buildUpdateProjectUrl`, `buildJsonUrl`, `buildShowUrl`, `buildSearchUrl`). No process, no Things, directly testable.
 - `payloads.ts`: JSON payloads for `things:///json` (`buildChecklistItems`, `buildTodo`, `buildProjectItems`, `buildStructuredProjectPayload`, `buildRestructurePayload`).
@@ -83,10 +85,8 @@ The `evaluate` tool shells out to `scripts/things-evaluate-url.jxa` (JXA = JavaS
 
 ### Authorization Token Handling
 
-The `THINGS_AUTH_TOKEN` environment variable is checked in multiple places:
+The token comes only from the `THINGS_AUTH_TOKEN` environment variable (`src/auth.ts`). No tool schema has an `auth-token` parameter; a passed one is stripped by Zod. Never put the token into a tool response, error message, log, or process argument. `test/token.test.ts` checks this with a sentinel value. Start via 1Password `op run`, see readme "Token ueber 1Password".
 
-- `resolveAuthToken()` in `src/index.ts`: Checks parameter first, then env var
-- Individual tools (`create-structured-project`, `json`): Check env var directly
 - User obtains token from: Things → Settings → General → Enable Things URLs → Manage
 
 ## MCP Tools Catalog
@@ -138,7 +138,7 @@ IDs are embedded in `things:///show?id=<ID>` format.
 
 ## Common Pitfalls
 
-1. **Auth token errors**: Update operations fail without auth token. Either pass `auth-token` parameter or set `THINGS_AUTH_TOKEN` env var in MCP client config.
+1. **Auth token errors**: Update operations fail without auth token. Set `THINGS_AUTH_TOKEN` in the server environment (via `op run`); there is no `auth-token` parameter.
 2. **JXA script missing**: Server will exit with error at startup if `scripts/things-evaluate-url.jxa` is not found.
 3. **Wrong build output**: The server expects `dist/index.js` to exist. Always run `pnpm build` before testing.
 4. **Special characters in titles/notes**: Always rely on `URLSearchParams` encoding, never manual string concatenation.
@@ -150,10 +150,11 @@ Tests are located in `test/` directory and use Vitest. `pnpm test` runs `tsc` fi
 
 - `test/urls.test.ts`, `test/payloads.test.ts`: the real builders from `src/`
 - `test/things-url.test.ts`: `%20` encoding
+- `test/token.test.ts`: no `auth-token` parameter, token in no response, error or process argument (stub `osascript` records stdin)
 - `test/server.test.ts`: end to end over stdio against `dist/index.js`; a stub `open` in `PATH` records the URLs instead of opening Things (`test/helpers/server-harness.ts`)
 - `test/url-construction.test.ts`: legacy, only exercises `URLSearchParams` itself
 
-Against real Things: `scripts/probe-things.sh` creates a todo through `dist/index.js`, reads it back via AppleScript, compares title and notes, and deletes it.
+Against real Things: `scripts/probe-things.sh` creates a todo through `dist/index.js`, reads it back via AppleScript, compares title and notes, checks both opener routes against `ps -p <pid>`, and deletes everything it created.
 
 ## Project Structure
 
@@ -164,7 +165,9 @@ things-mcp/
 │   ├── schemas.ts               # Zod schemas
 │   ├── urls.ts                  # Pure things:/// URL builders
 │   ├── payloads.ts              # JSON payloads for things:///json
-│   └── things-url.ts            # thingsQuery (%20 encoding)
+│   ├── things-url.ts            # thingsQuery (%20 encoding)
+│   ├── opener.ts                # openThingsURL (open, or osascript via stdin for token URLs)
+│   └── auth.ts                  # THINGS_AUTH_TOKEN only
 ├── test/                        # Vitest, see Testing
 ├── scripts/
 │   ├── things-evaluate-url.jxa  # JXA script for evaluate tool

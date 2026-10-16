@@ -2,7 +2,7 @@
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { execFile, spawn } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -21,6 +21,8 @@ import {
   updateProjectShape,
   updateShape,
 } from "./schemas.js";
+import { optionalAuthToken, requireAuthToken } from "./auth.js";
+import { openThingsURL } from "./opener.js";
 import { buildRestructurePayload, buildStructuredProjectPayload } from "./payloads.js";
 import {
   buildAddProjectUrl,
@@ -43,38 +45,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const evaluateScriptPath = path.resolve(__dirname, "../scripts/things-evaluate-url.jxa");
 const evaluateBinary = "/usr/bin/osascript";
-async function openThingsURL(url: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn("open", [url]);
-
-    child.on("error", (error) => {
-      reject(new Error(`Failed to open Things URL: ${error.message}`));
-    });
-
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`Failed to open Things URL: process exited with code ${code}`));
-      }
-    });
-  });
-}
-
-function resolveAuthToken(paramToken?: string) {
-  if (paramToken && paramToken.trim().length > 0) {
-    return paramToken;
-  }
-
-  const envToken = process.env.THINGS_AUTH_TOKEN;
-  if (envToken && envToken.trim().length > 0) {
-    return envToken;
-  }
-
-  throw new Error(
-    "Things auth token is required. Supply `auth-token` parameter or set THINGS_AUTH_TOKEN env var."
-  );
-}
 
 server.tool("add-todo", addTodoShape, async (params) => {
   await openThingsURL(buildAddTodoUrl(params));
@@ -105,7 +75,7 @@ server.tool("add-project", addProjectShape, async (params) => {
 
 server.tool("create-structured-project", createStructuredProjectShape, async (params) => {
   const payload = buildStructuredProjectPayload(params.project);
-  const authToken = params["auth-token"] ?? process.env.THINGS_AUTH_TOKEN ?? undefined;
+  const authToken = optionalAuthToken();
   await openThingsURL(buildJsonUrl(JSON.stringify(payload), { authToken, reveal: params.reveal }));
 
   return {
@@ -119,7 +89,7 @@ server.tool("create-structured-project", createStructuredProjectShape, async (pa
 });
 
 server.tool("update", updateShape, async (params) => {
-  const authToken = resolveAuthToken(params["auth-token"]);
+  const authToken = requireAuthToken();
   await openThingsURL(buildUpdateUrl(params, authToken));
 
   return {
@@ -133,7 +103,7 @@ server.tool("update", updateShape, async (params) => {
 });
 
 server.tool("update-project", updateProjectShape, async (params) => {
-  const authToken = resolveAuthToken(params["auth-token"]);
+  const authToken = requireAuthToken();
   await openThingsURL(buildUpdateProjectUrl(params, authToken));
 
   return {
@@ -158,7 +128,7 @@ server.tool("restructure-project", restructureProjectShape, async (params) => {
     );
   }
 
-  const authToken = resolveAuthToken(params["auth-token"]);
+  const authToken = requireAuthToken();
   await openThingsURL(buildJsonUrl(JSON.stringify(operations), { authToken }));
 
   const resultTextLines = [`Project ${params["project-id"]} restructured successfully in Things`];
@@ -296,7 +266,7 @@ server.tool("version", {}, async () => {
 });
 
 server.tool("json", jsonShape, async (params) => {
-  const authToken = params["auth-token"] ?? process.env.THINGS_AUTH_TOKEN ?? undefined;
+  const authToken = optionalAuthToken();
   await openThingsURL(buildJsonUrl(params.data, { authToken, reveal: params.reveal }));
 
   return {
@@ -329,8 +299,8 @@ Usage:
   things-mcp --help       Show this help message
 
 Configuration:
-  Set THINGS_AUTH_TOKEN environment variable to avoid passing auth-token
-  parameter for update operations.
+  update, update-project and restructure-project need THINGS_AUTH_TOKEN in
+  the environment. There is no auth-token tool parameter.
 
 Documentation: https://github.com/kevinberny/things-mcp
   `.trim()

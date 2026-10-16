@@ -148,19 +148,11 @@ export const createStructuredProjectShape = {
   project: StructuredProjectSchema.describe(
     "Structured project definition with headings and todos"
   ),
-  "auth-token": z
-    .string()
-    .optional()
-    .describe("Authorization token (required if project uses updates)"),
   reveal: z.boolean().optional().describe("Navigate to the created project when finished"),
 };
 
 export const updateShape = {
   id: z.string().describe("The ID of the todo to update (required)"),
-  "auth-token": z
-    .string()
-    .optional()
-    .describe("Things URL scheme authorization token (omit if THINGS_AUTH_TOKEN is set)"),
   title: z.string().optional().describe("New title (replaces existing)"),
   notes: z.string().optional().describe("New notes (replaces existing, max 10,000 chars)"),
   "prepend-notes": z.string().optional().describe("Text to add before existing notes"),
@@ -194,10 +186,6 @@ export type UpdateParams = z.infer<z.ZodObject<typeof updateShape>>;
 
 export const updateProjectShape = {
   id: z.string().describe("The ID of the project to update (required)"),
-  "auth-token": z
-    .string()
-    .optional()
-    .describe("Things URL scheme authorization token (omit if THINGS_AUTH_TOKEN is set)"),
   title: z.string().optional().describe("New title (replaces existing)"),
   notes: z.string().optional().describe("New notes (replaces existing, max 10,000 chars)"),
   "prepend-notes": z.string().optional().describe("Text to add before existing notes"),
@@ -222,10 +210,6 @@ export const restructureProjectShape = {
   "project-id": z
     .string()
     .describe("Identifier of the project to restructure (from Share → Copy Link)"),
-  "auth-token": z
-    .string()
-    .optional()
-    .describe("Things URL scheme authorization token (omit if THINGS_AUTH_TOKEN is set)"),
   layout: z
     .array(
       RestructureLayoutItemSchema.describe("Ordered layout blocks (headings or unsectioned items)")
@@ -270,10 +254,6 @@ export const evaluateSchema = z.object(evaluateShape).refine(
 );
 
 export const jsonShape = {
-  "auth-token": z
-    .string()
-    .optional()
-    .describe("Authorization token (required for update operations)"),
   data: z.string().describe("JSON string containing array of todo and project objects"),
   reveal: z.boolean().optional().describe("Navigate to and show the first created item"),
 };

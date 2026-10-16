@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WHEN_DESCRIPTION, whenSchema } from "./when.js";
 
 // Zod-Schemas der Werkzeuge. Die *Shape-Objekte gehen unveraendert an
 // server.tool(), die Typen daraus an die URL-Bauer in urls.ts.
@@ -17,7 +18,7 @@ export const StructuredTodoSchema = z.object({
   type: z.literal("to-do"),
   title: z.string(),
   notes: z.string().optional(),
-  when: z.string().optional(),
+  when: whenSchema.optional(),
   deadline: z.string().optional(),
   checklistItems: z.array(ChecklistItemSchema).optional(),
   tags: z.array(z.string()).optional(),
@@ -47,7 +48,7 @@ export type StructuredProjectItemInput = z.infer<typeof StructuredProjectItemSch
 export const StructuredProjectSchema = z.object({
   title: z.string(),
   notes: z.string().optional(),
-  when: z.string().optional(),
+  when: whenSchema.optional(),
   deadline: z.string().optional(),
   tags: z.array(z.string()).optional(),
   area: z.string().optional(),
@@ -85,12 +86,7 @@ export const addTodoShape = {
   title: z.string().optional().describe("The title of the todo (ignored if titles is specified)"),
   titles: z.string().optional().describe("Multiple todo titles separated by new lines"),
   notes: z.string().optional().describe("Notes for the todo (max 10,000 chars)"),
-  when: z
-    .string()
-    .optional()
-    .describe(
-      "When to schedule: today, tomorrow, evening, anytime, someday, date string, or date time string"
-    ),
+  when: whenSchema.optional().describe(WHEN_DESCRIPTION),
   deadline: z.string().optional().describe("Deadline date (YYYY-MM-DD format or natural language)"),
   tags: z.array(z.string()).optional().describe("Array of tag names"),
   "checklist-items": z.array(z.string()).optional().describe("Checklist items to add (max 100)"),
@@ -121,12 +117,7 @@ export type AddTodoParams = z.infer<z.ZodObject<typeof addTodoShape>>;
 export const addProjectShape = {
   title: z.string().describe("The title of the project"),
   notes: z.string().optional().describe("Notes for the project (max 10,000 chars)"),
-  when: z
-    .string()
-    .optional()
-    .describe(
-      "When to schedule: today, tomorrow, evening, anytime, someday, date string, or date time string"
-    ),
+  when: whenSchema.optional().describe(WHEN_DESCRIPTION),
   deadline: z.string().optional().describe("Deadline date (YYYY-MM-DD format or natural language)"),
   tags: z.array(z.string()).optional().describe("Array of tag names"),
   "area-id": z.string().optional().describe("ID of area to add to (takes precedence over area)"),
@@ -157,7 +148,7 @@ export const updateShape = {
   notes: z.string().optional().describe("New notes (replaces existing, max 10,000 chars)"),
   "prepend-notes": z.string().optional().describe("Text to add before existing notes"),
   "append-notes": z.string().optional().describe("Text to add after existing notes"),
-  when: z.string().optional().describe("When to schedule (cannot update repeating todos)"),
+  when: whenSchema.optional().describe(`${WHEN_DESCRIPTION}. Cannot update repeating todos`),
   deadline: z.string().optional().describe("Deadline date (cannot update repeating todos)"),
   tags: z.array(z.string()).optional().describe("Replace all current tags"),
   "add-tags": z.array(z.string()).optional().describe("Add these tags to existing ones"),
@@ -190,7 +181,7 @@ export const updateProjectShape = {
   notes: z.string().optional().describe("New notes (replaces existing, max 10,000 chars)"),
   "prepend-notes": z.string().optional().describe("Text to add before existing notes"),
   "append-notes": z.string().optional().describe("Text to add after existing notes"),
-  when: z.string().optional().describe("When to schedule (cannot update repeating projects)"),
+  when: whenSchema.optional().describe(`${WHEN_DESCRIPTION}. Cannot update repeating projects`),
   deadline: z.string().optional().describe("Deadline date (cannot update repeating projects)"),
   tags: z.array(z.string()).optional().describe("Replace all current tags"),
   "add-tags": z.array(z.string()).optional().describe("Add these tags to existing ones"),

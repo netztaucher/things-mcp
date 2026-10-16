@@ -57,6 +57,7 @@ node dist/index.js --help       # Show help
 
 - `index.ts`: creates the server, CLI flags, startup validation, stdio transport.
 - `tools/<tool>.ts`: one module per tool (`registerAddTodo`, ...), `tools/index.ts` registers them in the original order. Handlers only call builders and `openThingsURL`.
+- `read.ts`: `readTodos()` runs `scripts/things-read.jxa` via `execFile` with the request as one JSON argument, validates the answer with Zod, maps `{error}` to `ThingsReadError`.
 - `paths.ts`: `evaluateScriptPath` (resolved from `dist/` to `../scripts/things-evaluate-url.jxa`), `evaluateBinary`.
 - `opener.ts`: `openThingsURL`. URLs without token go as array argument to `open`; URLs with `auth-token` go via stdin to `osascript` (NSWorkspace), so the token never appears in process arguments.
 - `auth.ts`: `requireAuthToken`, `optionalAuthToken`. Token only from `THINGS_AUTH_TOKEN`; messages name the variable, never the value.
@@ -117,6 +118,13 @@ All tools return `{ content: [{ type: "text", text: "..." }] }` format.
 - `evaluate`: Query Things item properties via JXA script (returns structured JSON)
 - `version`: Get Things app version
 
+**Read** (return data, read-only, `src/read.ts` + `scripts/things-read.jxa`):
+- `list-todos`: built-in list (inbox, today, upcoming, anytime, someday, logbook)
+- `todos-by-tag`, `todos-by-project`, `todos-by-area`: open todos by tag, project, area
+- `search-todos`: open todos whose title or notes contain a text
+
+The JXA script addresses lists by fixed ids (`TMTodayListSource`, ...) because list names are localized. It fetches all ids in one Apple Event, then `properties()` per todo up to `limit`; bulk per-field queries take seconds per field on the logbook. Dates are local `YYYY-MM-DD` (the old `evaluate` uses `toISOString()`, which shifts local midnight to the previous day in UTC).
+
 ## Coding Guidelines (from .cursorrules)
 
 When modifying this codebase:
@@ -142,7 +150,7 @@ IDs are embedded in `things:///show?id=<ID>` format.
 ## Common Pitfalls
 
 1. **Auth token errors**: Update operations fail without auth token. Set `THINGS_AUTH_TOKEN` in the server environment (via `op run`); there is no `auth-token` parameter.
-2. **JXA script missing**: Server will exit with error at startup if `scripts/things-evaluate-url.jxa` is not found.
+2. **JXA script missing**: Server will exit with error at startup if `scripts/things-evaluate-url.jxa` or `scripts/things-read.jxa` is not found.
 3. **Wrong build output**: The server expects `dist/index.js` to exist. Always run `pnpm build` before testing.
 4. **Special characters in titles/notes**: Always rely on `URLSearchParams` encoding, never manual string concatenation.
 5. **Linting errors**: Run `pnpm lint:fix` to automatically fix most linting issues before committing.
@@ -153,12 +161,13 @@ Tests are located in `test/` directory and use Vitest. `pnpm test` runs `tsc` fi
 
 - `test/urls.test.ts`, `test/payloads.test.ts`: the real builders from `src/`
 - `test/things-url.test.ts`: `%20` encoding
+- `test/read.test.ts`: `readTodos` with a fake osascript (one JSON argument, error mapping), JXA self test without Things, read tool validation
 - `test/when.test.ts`: accepted and rejected `when` values, rejected before anything is opened
 - `test/token.test.ts`: no `auth-token` parameter, token in no response, error or process argument (stub `osascript` records stdin)
 - `test/server.test.ts`: end to end over stdio against `dist/index.js`; a stub `open` in `PATH` records the URLs instead of opening Things (`test/helpers/server-harness.ts`)
 - `test/url-construction.test.ts`: legacy, only exercises `URLSearchParams` itself
 
-Against real Things: `scripts/probe-things.sh` creates a todo through `dist/index.js`, reads it back via AppleScript, compares title and notes, checks both opener routes against `ps -p <pid>`, and deletes everything it created.
+Against real Things: `scripts/probe-things.sh` creates a todo through `dist/index.js`, reads it back via AppleScript, compares title and notes, checks both opener routes against `ps -p <pid>`, reads the todos back through all five read tools, and deletes everything it created.
 
 ## Project Structure
 
@@ -167,7 +176,8 @@ things-mcp/
 ├── src/
 │   ├── index.ts                 # Server, CLI flags, startup validation
 │   ├── tools/                   # One module per MCP tool, tools/index.ts registers all
-│   ├── paths.ts                 # JXA script path, osascript binary
+│   ├── paths.ts                 # JXA script paths, osascript binary
+│   ├── read.ts                  # readTodos via things-read.jxa
 │   ├── when.ts                  # when validation (YYYY-MM-DD etc.)
 │   ├── schemas.ts               # Zod schemas
 │   ├── urls.ts                  # Pure things:/// URL builders
@@ -178,6 +188,7 @@ things-mcp/
 ├── test/                        # Vitest, see Testing
 ├── scripts/
 │   ├── things-evaluate-url.jxa  # JXA script for evaluate tool
+│   ├── things-read.jxa          # JXA script for the read tools
 │   └── probe-things.sh          # Probe against real Things
 ├── .github/
 │   └── workflows/

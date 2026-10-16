@@ -1,0 +1,224 @@
+#!/usr/bin/osascript -l JavaScript
+
+// Liest Todos aus Things 3 und gibt sie als JSON aus. Nur lesend.
+//
+// Test:     ja - Selbsttest und Fehlerfall in test/read.test.ts (CI), Probe gegen Things 3 in scripts/probe-things.sh · netztaucher/things-mcp#5
+// Rueckweg: entfällt - liest nur
+// Aufruf: osascript -l JavaScript things-read.jxa '<json-anfrage>'
+// Die Anfrage kommt als ein Argument (execFile, keine Shell), siehe src/read.ts.
+//
+// Anfrage:  { source: "list"|"tag"|"project"|"area"|"search"|"selftest",
+//             list?, tag?, id?, name?, query?, includeProjects?, limit }
+// Antwort:  { source, total, returned, truncated, todos: [...] }
+//           oder { error: "<code>", message }
+//
+// Things-Listen werden ueber ihre festen IDs angesprochen, nicht ueber Namen:
+// die Namen sind lokalisiert ("Eingang", "Heute").
+//
+// Zuerst holt eine Abfrage alle IDs der Sammlung (ein Apple Event), dann je
+// Todo properties() fuer die ersten `limit` Eintraege. Massenabfragen je Feld
+// waeren fuer kleine Listen schneller, sind aber auf dem Logbuch (zehntausende
+// Eintraege) pro Feld mehrere Sekunden langsam.
+
+const LIST_IDS = {
+  inbox: "TMInboxListSource",
+  today: "TMTodayListSource",
+  upcoming: "TMCalendarListSource",
+  anytime: "TMNextListSource",
+  someday: "TMSomedayListSource",
+  logbook: "TMLogbookListSource",
+};
+
+function fail(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  throw error;
+}
+
+// Lokales Kalenderdatum. toISOString() wuerde auf UTC umrechnen und aus
+// Mitternacht MEZ den Vortag machen.
+function localDay(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function splitTags(value) {
+  if (!value) return [];
+  return String(value)
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length > 0);
+}
+
+function refOrNull(id, name) {
+  return id ? { id: String(id), name: name === null || name === undefined ? "" : String(name) } : null;
+}
+
+function findOne(collection, kind, request) {
+  if (request.id) {
+    const item = collection.byId(request.id);
+    try {
+      item.id();
+    } catch (err) {
+      fail(`${kind}_not_found`, `No ${kind} with id ${request.id}`);
+    }
+    return item;
+  }
+  if (request.name) {
+    const hits = collection.whose({ name: request.name })();
+    if (hits.length === 0) fail(`${kind}_not_found`, `No ${kind} named "${request.name}"`);
+    if (hits.length > 1) {
+      fail(
+        `${kind}_ambiguous`,
+        `${hits.length} ${kind}s named "${request.name}", use id: ${hits.map((h) => h.id()).join(", ")}`
+      );
+    }
+    return hits[0];
+  }
+  fail("bad_request", `${kind} id or name required`);
+}
+
+// IDs der angefragten Todos, in Things-Reihenfolge.
+function collectIds(Things, request) {
+  switch (request.source) {
+    case "list": {
+      const listId = LIST_IDS[request.list];
+      if (!listId) fail("bad_request", `Unknown list ${request.list}`);
+      return Things.lists.byId(listId).toDos.id();
+    }
+    case "tag": {
+      const names = Things.tags.name();
+      if (names.indexOf(request.tag) === -1) {
+        fail("tag_not_found", `No tag named "${request.tag}"`);
+      }
+      return Things.tags.byName(request.tag).toDos.id();
+    }
+    case "project":
+      return findOne(Things.projects, "project", request).toDos.id();
+    case "area": {
+      const area = findOne(Things.areas, "area", request);
+      let ids = area.toDos.id();
+      if (request.includeProjects) {
+        const areaId = area.id();
+        const projects = Things.projects.whose({ _match: [ObjectSpecifier().area.id, areaId] })();
+        projects.forEach((project) => {
+          ids = ids.concat(project.toDos.id());
+        });
+      }
+      return ids;
+    }
+    case "search": {
+      const query = String(request.query || "");
+      if (!query.trim()) fail("bad_request", "query required");
+      return Things.toDos.whose({
+        _or: [{ name: { _contains: query } }, { notes: { _contains: query } }],
+      }).id();
+    }
+    default:
+      return fail("bad_request", `Unknown source ${request.source}`);
+  }
+}
+
+// Projekt-ID -> { name, area }, Bereich-ID -> Name. Je drei Massenabfragen.
+function loadIndex(Things) {
+  const projectIds = Things.projects.id();
+  const projectNames = Things.projects.name();
+  const projectAreas = Things.projects.area.id();
+  const areaIds = Things.areas.id();
+  const areaNames = Things.areas.name();
+  const areas = {};
+  areaIds.forEach((id, i) => {
+    areas[id] = areaNames[i];
+  });
+  const projects = {};
+  projectIds.forEach((id, i) => {
+    projects[id] = { name: projectNames[i], area: projectAreas[i] };
+  });
+  return { projects, areas };
+}
+
+function readTodo(Things, id, index) {
+  const todo = Things.toDos.byId(id);
+  const p = todo.properties();
+  let projectId = null;
+  let areaId = null;
+  try {
+    projectId = p.project ? todo.project.id() : null;
+  } catch (err) {
+    projectId = null;
+  }
+  try {
+    areaId = p.area ? todo.area.id() : null;
+  } catch (err) {
+    areaId = null;
+  }
+  const project = projectId ? index.projects[projectId] : null;
+  if (!areaId && project && project.area) areaId = project.area;
+
+  const result = {
+    id: String(p.id),
+    name: String(p.name || ""),
+    notes: String(p.notes || ""),
+    status: String(p.status),
+    activation_date: localDay(p.activationDate),
+    due_date: localDay(p.dueDate),
+    tags: splitTags(p.tagNames),
+    project: refOrNull(projectId, project ? project.name : null),
+    area: refOrNull(areaId, areaId ? index.areas[areaId] : null),
+  };
+  const completed = localDay(p.completionDate) || localDay(p.cancellationDate);
+  if (completed) result.completion_date = completed;
+  return result;
+}
+
+function selftest() {
+  const checks = [
+    [localDay(new Date(2026, 10, 1, 0, 0, 0)), "2026-11-01"],
+    [localDay(null), null],
+    [JSON.stringify(splitTags("a, b c,  d")), JSON.stringify(["a", "b c", "d"])],
+    [JSON.stringify(splitTags("")), "[]"],
+    [JSON.stringify(refOrNull(null, "x")), "null"],
+    [JSON.stringify(refOrNull("P1", null)), JSON.stringify({ id: "P1", name: "" })],
+    [LIST_IDS.upcoming, "TMCalendarListSource"],
+  ];
+  const failed = checks.filter(([actual, expected]) => actual !== expected);
+  return { source: "selftest", checks: checks.length, failed: failed.length };
+}
+
+function run(argv) {
+  let request;
+  try {
+    request = JSON.parse(String(argv[0] || ""));
+  } catch (err) {
+    return JSON.stringify({ error: "bad_request", message: "Request must be JSON" });
+  }
+
+  try {
+    if (request.source === "selftest") return JSON.stringify(selftest());
+
+    let Things;
+    try {
+      Things = Application("Things3");
+    } catch (err) {
+      fail("things_app_not_found", "Things 3 is not installed");
+    }
+
+    const ids = collectIds(Things, request);
+    const limit = Math.max(1, Math.min(Number(request.limit) || 50, 500));
+    const slice = ids.slice(0, limit);
+    const index = loadIndex(Things);
+    const todos = slice.map((id) => readTodo(Things, id, index));
+    return JSON.stringify({
+      source: request.source,
+      total: ids.length,
+      returned: todos.length,
+      truncated: ids.length > todos.length,
+      todos,
+    });
+  } catch (err) {
+    return JSON.stringify({ error: err.code || "things_error", message: String(err.message || err) });
+  }
+}

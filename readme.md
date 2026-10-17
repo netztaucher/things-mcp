@@ -3,6 +3,22 @@
 
 A Model Context Protocol (MCP) server that provides seamless integration with the [Things](https://culturedcode.com/things/) productivity app. This server enables AI assistants to create, update, and manage your todos and projects in Things using its comprehensive URL scheme.
 
+## Fork netztaucher
+
+Dieser Fork basiert auf [kevinberny/things-mcp](https://github.com/kevinberny/things-mcp), selbst ein Fork von [jimfilippou/things-mcp](https://github.com/jimfilippou/things-mcp). Das npm-Paket `things-mcp` ist veraltet (0.1.0, 4 Werkzeuge). Deshalb laeuft der Server hier aus diesem Checkout, nicht per `npx`.
+
+Abweichungen vom Upstream:
+- Leerzeichen gehen als `%20` an Things, nicht als `+` (`src/things-url.ts`, jimfilippou/things-mcp#4, Fix aus #2). Test: `test/things-url.test.ts`.
+- `evaluate` startet `osascript` per `execFile` statt `exec`. Die ID oder URL geht als Argument, nicht durch eine Shell.
+
+Bauen und einbinden:
+
+```bash
+pnpm install --frozen-lockfile && pnpm run build
+```
+
+MCP-Konfiguration: `"command": "node", "args": ["<checkout>/dist/index.js"]`. Fuer `update` und `update-project` braucht der Server `THINGS_AUTH_TOKEN` (Things → Einstellungen → Allgemein → Things-URLs aktivieren).
+
 ## Features
 
 - ✅ **Full Things URL Scheme Support** - Complete implementation of all Things URL commands

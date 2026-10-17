@@ -2,15 +2,16 @@
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { exec, spawn } from "child_process";
+import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import path from "path";
 import { fileURLToPath } from "url";
 import { existsSync } from "fs";
+import { thingsQuery } from "./things-url.js";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const server = new McpServer({
   name: "things-mcp",
@@ -395,7 +396,7 @@ server.tool(
     if (params["creation-date"]) urlParams.set("creation-date", params["creation-date"]);
     if (params["completion-date"]) urlParams.set("completion-date", params["completion-date"]);
 
-    const url = `things:///add?${urlParams.toString()}`;
+    const url = `things:///add?${thingsQuery(urlParams)}`;
     await openThingsURL(url);
 
     const todoName = params.titles ? "todos" : `todo "${params.title || "untitled"}"`;
@@ -460,7 +461,7 @@ server.tool(
     if (params["creation-date"]) urlParams.set("creation-date", params["creation-date"]);
     if (params["completion-date"]) urlParams.set("completion-date", params["completion-date"]);
 
-    const url = `things:///add-project?${urlParams.toString()}`;
+    const url = `things:///add-project?${thingsQuery(urlParams)}`;
     await openThingsURL(url);
 
     return {
@@ -501,7 +502,7 @@ server.tool(
       urlParams.set("reveal", params.reveal.toString());
     }
 
-    const url = `things:///json?${urlParams.toString()}`;
+    const url = `things:///json?${thingsQuery(urlParams)}`;
     await openThingsURL(url);
 
     return {
@@ -585,7 +586,7 @@ server.tool(
     if (params["creation-date"]) urlParams.set("creation-date", params["creation-date"]);
     if (params["completion-date"]) urlParams.set("completion-date", params["completion-date"]);
 
-    const url = `things:///update?${urlParams.toString()}`;
+    const url = `things:///update?${thingsQuery(urlParams)}`;
     await openThingsURL(url);
 
     return {
@@ -650,7 +651,7 @@ server.tool(
     if (params["creation-date"]) urlParams.set("creation-date", params["creation-date"]);
     if (params["completion-date"]) urlParams.set("completion-date", params["completion-date"]);
 
-    const url = `things:///update-project?${urlParams.toString()}`;
+    const url = `things:///update-project?${thingsQuery(urlParams)}`;
     await openThingsURL(url);
 
     return {
@@ -700,7 +701,7 @@ server.tool(
     urlParams.set("auth-token", authToken);
     urlParams.set("data", JSON.stringify(operations));
 
-    const url = `things:///json?${urlParams.toString()}`;
+    const url = `things:///json?${thingsQuery(urlParams)}`;
     await openThingsURL(url);
 
     const resultTextLines = [`Project ${params["project-id"]} restructured successfully in Things`];
@@ -748,7 +749,7 @@ server.tool(
       urlParams.set("filter", params.filter.join(","));
     }
 
-    const url = `things:///show?${urlParams.toString()}`;
+    const url = `things:///show?${thingsQuery(urlParams)}`;
     await openThingsURL(url);
 
     const target = params.id || params.query || "Things";
@@ -782,7 +783,7 @@ server.tool(
     const urlParams = new URLSearchParams();
     if (params.query) urlParams.set("query", params.query);
 
-    const url = `things:///search?${urlParams.toString()}`;
+    const url = `things:///search?${thingsQuery(urlParams)}`;
     await openThingsURL(url);
 
     return {
@@ -828,13 +829,19 @@ server.tool(
 
     const params = parsedRequest.data;
     const target = params.id ?? params.url;
-
-    const command = `${evaluateBinary} -l JavaScript ${JSON.stringify(
-      evaluateScriptPath
-    )} ${JSON.stringify(target)}`;
+    if (!target) {
+      throw new Error("Either id or url is required.");
+    }
 
     try {
-      const { stdout } = await execAsync(command);
+      // execFile statt exec: target geht als Argument, nicht durch eine Shell.
+      // Mit exec wuerde $(...) in der doppelt gequoteten Zeichenkette ausgefuehrt.
+      const { stdout } = await execFileAsync(evaluateBinary, [
+        "-l",
+        "JavaScript",
+        evaluateScriptPath,
+        target,
+      ]);
       const trimmed = stdout.trim();
       if (!trimmed) {
         throw new Error("No data returned from Things evaluate script.");
@@ -926,7 +933,7 @@ server.tool(
       urlParams.set("reveal", params.reveal.toString());
     }
 
-    const url = `things:///json?${urlParams.toString()}`;
+    const url = `things:///json?${thingsQuery(urlParams)}`;
     await openThingsURL(url);
 
     return {

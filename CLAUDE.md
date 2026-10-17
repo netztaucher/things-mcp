@@ -53,22 +53,13 @@ node dist/index.js --help       # Show help
 
 ## Architecture
 
-### Single-File MCP Server (`src/index.ts`)
+### Module layout (`src/`)
 
-The entire server is implemented in one TypeScript file (~1170 lines). It follows this structure:
-
-1. **Startup validation**: Checks JXA script exists and osascript binary is available before starting
-2. **CLI argument handling**: Supports `--version` and `--help` flags
-3. **URL execution** (`openThingsURL`): Uses `spawn` to safely call `open` command with URL as array argument (prevents command injection)
-4. **Auth token resolution** (`resolveAuthToken`): Checks parameter or `THINGS_AUTH_TOKEN` env var
-5. **Zod schemas**: Define structured project/todo/heading input formats and validation
-6. **Builder functions**: Transform structured inputs into Things JSON payloads
-   - `buildChecklistItems()`: Converts checklist arrays to Things format
-   - `buildTodo()`: Creates to-do JSON with all attributes
-   - `buildProjectItems()`: Processes mixed heading/todo arrays
-   - `buildStructuredProjectPayload()`: Top-level project JSON generator
-   - `buildRestructurePayload()`: Generates batch operations for heading/todo reordering
-7. **MCP tool definitions**: Each `server.tool()` call registers a tool with schema + handler
+- `index.ts`: startup validation, CLI flags, `openThingsURL` (spawns `open` with the URL as array argument), `resolveAuthToken`, and the `server.tool()` registrations. Handlers only call builders and `openThingsURL`.
+- `schemas.ts`: all Zod schemas; the `*Shape` objects are passed to `server.tool()` unchanged, the inferred types feed the builders.
+- `urls.ts`: pure URL builders (`buildAddTodoUrl`, `buildAddProjectUrl`, `buildUpdateUrl`, `buildUpdateProjectUrl`, `buildJsonUrl`, `buildShowUrl`, `buildSearchUrl`). No process, no Things, directly testable.
+- `payloads.ts`: JSON payloads for `things:///json` (`buildChecklistItems`, `buildTodo`, `buildProjectItems`, `buildStructuredProjectPayload`, `buildRestructurePayload`).
+- `things-url.ts`: `thingsQuery()`, encodes spaces as `%20` (Things takes `+` literally).
 
 ### Things URL Scheme Integration
 
@@ -78,7 +69,7 @@ All operations construct `things:///` URLs with query parameters:
 - Complex operations (create-structured-project, restructure-project): Build JSON payloads and pass via `data` parameter to `things:///json`
 - Update operations (update, update-project): Require auth token from Things settings
 
-**URL encoding**: Always uses `URLSearchParams.toString()` to handle special characters correctly.
+**URL encoding**: Always build with `URLSearchParams` and serialize with `thingsQuery()` from `src/things-url.ts` (spaces as `%20`).
 
 ### JXA Script Integration
 
@@ -88,13 +79,13 @@ The `evaluate` tool shells out to `scripts/things-evaluate-url.jxa` (JXA = JavaS
 - Requires executable permissions (`chmod +x scripts/things-evaluate-url.jxa`)
 - Returns JSON representation of Things items (todos, projects, areas, tags)
 
-**Location**: `evaluateScriptPath` at line 21-24 and usage at line 992-994
+**Location**: `evaluateScriptPath` and the `evaluate` tool in `src/index.ts`
 
 ### Authorization Token Handling
 
 The `THINGS_AUTH_TOKEN` environment variable is checked in multiple places:
 
-- `resolveAuthToken()` function (lines 34-47): Checks parameter first, then env var
+- `resolveAuthToken()` in `src/index.ts`: Checks parameter first, then env var
 - Individual tools (`create-structured-project`, `json`): Check env var directly
 - User obtains token from: Things → Settings → General → Enable Things URLs → Manage
 
@@ -155,25 +146,29 @@ IDs are embedded in `things:///show?id=<ID>` format.
 
 ## Testing
 
-Tests are located in `test/` directory and use Vitest. Current test coverage includes:
+Tests are located in `test/` directory and use Vitest. `pnpm test` runs `tsc` first, because `test/server.test.ts` starts `dist/index.js`.
 
-- URL construction and encoding
-- URLSearchParams behavior with special characters
-- Security tests for command injection prevention
-- Things URL scheme format validation
+- `test/urls.test.ts`, `test/payloads.test.ts`: the real builders from `src/`
+- `test/things-url.test.ts`: `%20` encoding
+- `test/server.test.ts`: end to end over stdio against `dist/index.js`; a stub `open` in `PATH` records the URLs instead of opening Things (`test/helpers/server-harness.ts`)
+- `test/url-construction.test.ts`: legacy, only exercises `URLSearchParams` itself
 
-Run tests before submitting PRs to ensure URL construction remains secure.
+Against real Things: `scripts/probe-things.sh` creates a todo through `dist/index.js`, reads it back via AppleScript, compares title and notes, and deletes it.
 
 ## Project Structure
 
 ```
 things-mcp/
 ├── src/
-│   └── index.ts                 # Entire MCP server implementation
-├── test/
-│   └── url-construction.test.ts # Tests for URL encoding and security
+│   ├── index.ts                 # Startup, openThingsURL, tool registrations
+│   ├── schemas.ts               # Zod schemas
+│   ├── urls.ts                  # Pure things:/// URL builders
+│   ├── payloads.ts              # JSON payloads for things:///json
+│   └── things-url.ts            # thingsQuery (%20 encoding)
+├── test/                        # Vitest, see Testing
 ├── scripts/
-│   └── things-evaluate-url.jxa  # JXA script for evaluate tool
+│   ├── things-evaluate-url.jxa  # JXA script for evaluate tool
+│   └── probe-things.sh          # Probe against real Things
 ├── .github/
 │   └── workflows/
 │       └── ci.yml               # GitHub Actions CI pipeline

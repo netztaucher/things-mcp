@@ -89,7 +89,7 @@ The `evaluate` tool shells out to `scripts/things-evaluate-url.jxa` (JXA = JavaS
 
 ### Authorization Token Handling
 
-The token comes only from the `THINGS_AUTH_TOKEN` environment variable (`src/auth.ts`). No tool schema has an `auth-token` parameter; a passed one is stripped by Zod. Never put the token into a tool response, error message, log, or process argument. `test/token.test.ts` checks this with a sentinel value. Start via 1Password `op run`, see readme "Token ueber 1Password".
+The token comes only from the `THINGS_AUTH_TOKEN` environment variable (`src/auth.ts`). No tool schema has an `auth-token` parameter; a passed one is stripped by Zod. Never put the token into a tool response, error message, log, or process argument. `test/token.test.ts` checks this with a sentinel value. Start via 1Password `op run`, see readme sections "Token" and "Einrichten".
 
 - User obtains token from: Things → Settings → General → Enable Things URLs → Manage
 

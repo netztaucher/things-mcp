@@ -1,462 +1,265 @@
-# Things MCP Server
-[![Trust Score](https://archestra.ai/mcp-catalog/api/badge/quality/jimfilippou/things-mcp)](https://archestra.ai/mcp-catalog/jimfilippou__things-mcp)
+# things-mcp (Fork netztaucher)
 
-A Model Context Protocol (MCP) server that provides seamless integration with the [Things](https://culturedcode.com/things/) productivity app. This server enables AI assistants to create, update, and manage your todos and projects in Things using its comprehensive URL scheme.
+MCP-Server fuer [Things 3](https://culturedcode.com/things/) auf dem Mac. Er legt Todos und Projekte an, aendert sie, baut Projekte um und liest Todos als Daten zurueck. Schreiben laeuft ueber das [Things-URL-Schema](https://culturedcode.com/things/support/articles/2803573/), Lesen ueber JavaScript for Automation (JXA).
 
-## Fork netztaucher
+Herkunft: [jimfilippou/things-mcp](https://github.com/jimfilippou/things-mcp) → [kevinberny/things-mcp](https://github.com/kevinberny/things-mcp) → dieser Fork. Das npm-Paket `things-mcp` (0.1.0) ist veraltet und hat den Leerzeichen-Fehler. Der Server laeuft deshalb aus diesem Checkout, nicht per `npx`.
 
-Dieser Fork basiert auf [kevinberny/things-mcp](https://github.com/kevinberny/things-mcp), selbst ein Fork von [jimfilippou/things-mcp](https://github.com/jimfilippou/things-mcp). Das npm-Paket `things-mcp` ist veraltet (0.1.0, 4 Werkzeuge). Deshalb laeuft der Server hier aus diesem Checkout, nicht per `npx`.
+## Inhalt
 
-Abweichungen vom Upstream:
-- Leerzeichen gehen als `%20` an Things, nicht als `+` (`src/things-url.ts`, jimfilippou/things-mcp#4, Fix aus #2). Test: `test/things-url.test.ts`.
-- `evaluate` startet `osascript` per `execFile` statt `exec`. Die ID oder URL geht als Argument, nicht durch eine Shell.
-- URL-Bau steckt in reinen Funktionen (`src/urls.ts`, `src/payloads.ts`), die Tests importieren sie aus `src`. `test/server.test.ts` startet `dist/index.js` als MCP-Server und faengt die URLs an `open` ab. `pnpm test` baut vorher.
-- Probe gegen echtes Things: `scripts/probe-things.sh` legt ueber `dist/index.js` ein Todo an, liest es per AppleScript zurueck und loescht es wieder.
-- Lesewerkzeuge, die Daten zurueckgeben (upstream oeffnen `show` und `search` nur die Things-Oberflaeche): `list-todos`, `todos-by-tag`, `todos-by-project`, `todos-by-area`, `search-todos`. Siehe Lesen.
-- `when` nimmt ausdruecklich ein festes Datum `YYYY-MM-DD` und `YYYY-MM-DD@HH:MM` (Erinnerung). Was wie ein Datum aussieht, wird vorher geprueft (`src/when.ts`): `2026-02-30`, `01.11.2026` oder ISO-Zeitstempel gehen nicht mehr still an Things. Stichworte und englischer Freitext laufen wie bisher durch.
-- Ein Modul je Werkzeug unter `src/tools/`, `src/index.ts` startet nur noch den Server.
-- Kein Werkzeug-Parameter `auth-token` mehr, Token nur aus `THINGS_AUTH_TOKEN`. URLs mit Token gehen per stdin an `osascript` statt als Argument an `open` (siehe Token ueber 1Password).
+- [Werkzeuge](#werkzeuge)
+- [Einrichten](#einrichten)
+- [Token](#token)
+- [Werkzeuge im Detail](#werkzeuge-im-detail)
+- [Entwicklung](#entwicklung)
+- [Abweichungen vom Upstream](#abweichungen-vom-upstream)
+- [Fehlerbehebung](#fehlerbehebung)
 
-Bauen und einbinden:
+## Werkzeuge
+
+| Gruppe | Werkzeug | Zweck | Token |
+|---|---|---|---|
+| Anlegen | `add-todo` | ein oder mehrere Todos | nein |
+| | `add-project` | Projekt mit Todo-Titeln | nein |
+| | `create-structured-project` | Projekt mit Ueberschriften, Todos, Checklisten | nur fuer Updates |
+| | `json` | beliebige Things-JSON-Befehle | nur fuer Updates |
+| Aendern | `update` | Todo aendern | ja |
+| | `update-project` | Projekt aendern | ja |
+| | `restructure-project` | Ueberschriften anlegen, umbenennen, loeschen, Todos verschieben | ja |
+| Lesen | `list-todos` | Eingang, Heute, Geplant, Jederzeit, Irgendwann, Logbuch | nein |
+| | `todos-by-tag` | offene Todos mit einem Tag | nein |
+| | `todos-by-project` | offene Todos eines Projekts | nein |
+| | `todos-by-area` | offene Todos eines Bereichs und seiner Projekte | nein |
+| | `search-todos` | offene Todos mit Text in Titel oder Notiz | nein |
+| | `evaluate` | ein Element per ID oder Things-Link | nein |
+| Oberflaeche | `show` | Liste oder Element in Things oeffnen | nein |
+| | `search` | Suche in Things oeffnen | nein |
+| | `version` | Things-Version anzeigen lassen | nein |
+
+`show` und `search` oeffnen nur die Things-Oberflaeche und geben nichts zurueck. Fuer Daten die Lesewerkzeuge nehmen.
+
+## Einrichten
+
+Voraussetzungen: macOS, Things 3, Node.js 18 oder neuer, pnpm, 1Password-CLI `op` (fuer das Token).
+
+Bauen:
 
 ```bash
 pnpm install --frozen-lockfile && pnpm run build
 ```
 
-MCP-Konfiguration ohne Token: `"command": "node", "args": ["<checkout>/dist/index.js"]`. Dann laufen alle Werkzeuge ausser `update`, `update-project` und `restructure-project`.
+Things → Einstellungen → Allgemein → "Things-URLs aktivieren" muss an sein.
+
+### In der NT-Infrastruktur
+
+Der Eintrag `things` steht in NT-Brain `core/config/mcps.json`. Der Generator schreibt daraus `~/.claude.json` und die Claude-Desktop-Konfiguration. Abgleich ohne zu schreiben:
+
+```bash
+python3 core/bin/generate-tool-configs.py --check
+```
+
+Erzeugter Eintrag:
+
+```json
+"things": {
+  "command": "sh",
+  "args": ["-c", "exec /opt/homebrew/bin/op run -- \"$HOME/.local/bin/node-bridge.sh\" \"$HOME/_dev/things-mcp/dist/index.js\""],
+  "env": { "THINGS_AUTH_TOKEN": "op://NT-Brain/infra-api-keys/THINGS_AUTH_TOKEN" }
+}
+```
+
+In `env` steht nur der 1Password-Verweis. `op run` loest ihn beim Start auf und gibt das Token als Umgebungsvariable an den Server. `node-bridge.sh` findet `node` auch dort, wo GUI-Apps keinen Homebrew-PATH haben.
+
+### Ohne NT-Infrastruktur
+
+Referenzdatei mit dem Verweis (kein Wert):
+
+```bash
+mkdir -p ~/.config/things-mcp && printf '%s\n' 'THINGS_AUTH_TOKEN=op://NT-Brain/infra-api-keys/THINGS_AUTH_TOKEN' > ~/.config/things-mcp/op.env
+```
+
+MCP-Konfiguration:
+
+```json
+"things": {
+  "command": "/opt/homebrew/bin/op",
+  "args": ["run", "--env-file=/Users/<nutzer>/.config/things-mcp/op.env", "--", "node", "<checkout>/dist/index.js"]
+}
+```
+
+Ohne Token: `"command": "node", "args": ["<checkout>/dist/index.js"]`. Dann laufen alle Werkzeuge ausser `update`, `update-project` und `restructure-project`.
+
+Nach jeder Aenderung an der Konfiguration Claude Desktop bzw. die Claude-Code-Sitzung neu starten.
+
+## Token
+
+Things verlangt fuer aendernde URL-Befehle ein Token (Things → Einstellungen → Allgemein → Things-URLs aktivieren → Verwalten). Es liegt in 1Password unter `op://NT-Brain/infra-api-keys/THINGS_AUTH_TOKEN`.
+
+- Der Server liest das Token nur aus `THINGS_AUTH_TOKEN`. Kein Werkzeug hat einen Parameter `auth-token`, ein mitgegebener wird verworfen.
+- Fehlt das Token, melden `update` & Co. `THINGS_AUTH_TOKEN is not set` und oeffnen nichts. Meldungen nennen nie den Wert.
+- URLs mit Token gehen per stdin an `osascript`, das sie ueber `NSWorkspace` oeffnet (`src/opener.ts`), nicht als Argument an `open`.
+- Neu setzen nur in der 1Password-App, nicht per `op item edit ... THINGS_AUTH_TOKEN=<wert>`: dann steht der Wert in Prozessliste und Shell-Historie. Rotation nach Lex Clavis.
+
+Pruefen ohne den Wert zu sehen (Stand 2026-10-16: 22 Zeichen, sha256-12 `4dce2791ce8e`):
+
+```bash
+op read "op://NT-Brain/infra-api-keys/THINGS_AUTH_TOKEN" | shasum -a 256 | cut -c1-12
+```
+
+Warum stdin und Umgebung (gemessen 2026-10-16, macOS 27.0.1):
+- Prozessargumente sind unter macOS fuer alle lokalen Nutzer lesbar (`ps -axww -o args`). Upstream gibt jede URL an `open`, mit Token also das Token, rund 60 bis 105 ms lang. `scripts/probe-things.sh` startet beide Wege und liest sofort `ps -p <pid>`: `open` zeigt die URL, der stdin-Weg nicht.
+- Umgebungsvariablen zeigt `ps` ohne root nicht, auch nicht fuer eigene Prozesse. root und Endpoint-Security-Werkzeuge sehen sie.
+- MCP ueber stdio laeuft durch `op run` unveraendert, der Start dauert rund 7 s statt unter 1 s.
+
+## Werkzeuge im Detail
+
+### when und deadline
+
+`when`: `today`, `tomorrow`, `evening`, `anytime`, `someday`, festes Datum `YYYY-MM-DD`, Datum mit Erinnerung `YYYY-MM-DD@HH:MM` oder englischer Freitext (`in 3 days`, `next tuesday`). Was wie ein Datum aussieht, wird vorher geprueft (`src/when.ts`): `2026-02-30`, `01.11.2026` oder ein ISO-Zeitstempel werden abgelehnt, bevor etwas an Things geht.
+
+`deadline`: Datum `YYYY-MM-DD`, wird unveraendert durchgereicht.
+
+### Anlegen
+
+- `add-todo`: `title` oder `titles` (mehrere, je Zeile eins), `notes`, `when`, `deadline`, `tags`, `checklist-items`, `list` bzw. `list-id`, `heading` bzw. `heading-id`, `completed`, `canceled`, `reveal`, `show-quick-entry`, `use-clipboard`, `creation-date`, `completion-date`.
+- `add-project`: `title`, `notes`, `when`, `deadline`, `tags`, `area` bzw. `area-id`, `to-dos` (Titel), `completed`, `canceled`, `reveal`, `creation-date`, `completion-date`.
+- `create-structured-project`: `project` mit echten Ueberschriften und verschachtelten Todos, `reveal`. Beispiel fuer `project`:
+
+  ```json
+  {
+    "title": "Einkauf",
+    "items": [
+      { "type": "heading", "title": "Obst", "items": [{ "type": "to-do", "title": "2 Avocados", "when": "today" }] },
+      { "type": "to-do", "title": "Milch", "checklistItems": ["Hafer", "Kuh"] }
+    ]
+  }
+  ```
+- `json`: `data` als JSON-Text im Things-JSON-Format, `reveal`.
+
+Tags muessen in Things schon existieren, unbekannte ignoriert Things.
+
+### Aendern (Token noetig)
+
+- `update`: `id` und die Felder von `add-todo` sinngemaess, dazu `prepend-notes`, `append-notes`, `add-tags`, `prepend-checklist-items`, `append-checklist-items`, `duplicate`. `when` und `deadline` gehen nicht bei wiederholenden Todos.
+- `update-project`: `id`, Felder wie `add-project`, dazu `prepend-notes`, `append-notes`, `add-tags`, `duplicate`.
+- `restructure-project`: `project-id` und `layout`, eine geordnete Liste aus `{ "type": "heading", "id"?, "title"?, "operation"?, "items": [todo-ids] }` und `{ "type": "unsectioned", "items": [todo-ids] }`. Neue Ueberschriften bekommen eine ID, die Antwort nennt sie.
+
+IDs: in Things Rechtsklick → Teilen → Link kopieren, die ID steht in `things:///show?id=<ID>`. Oder aus der Antwort eines Lesewerkzeugs.
 
 ### Lesen
 
 Nur lesend, per `osascript` und `scripts/things-read.jxa` (`src/read.ts`). Die Anfrage geht als ein JSON-Argument per `execFile`, nie durch eine Shell.
 
-| Werkzeug | Parameter | Liefert |
+| Werkzeug | Parameter |
+|---|---|
+| `list-todos` | `list`: `inbox`, `today`, `upcoming`, `anytime`, `someday`, `logbook`; `limit` |
+| `todos-by-tag` | `tag` (genauer Name); `limit` |
+| `todos-by-project` | `id` oder `name`; `limit` |
+| `todos-by-area` | `id` oder `name`; `include-projects` (Standard `true`); `limit` |
+| `search-todos` | `query`; `limit` |
+
+`limit` 1 bis 500, Standard 50, im Logbuch 20.
+
+Antwort (JSON als Text):
+
+```json
+{
+  "source": "tag", "total": 84, "returned": 50, "truncated": true,
+  "todos": [{
+    "id": "…", "name": "…", "notes": "…", "status": "open",
+    "activation_date": "2026-11-25", "due_date": null, "tags": ["dev"],
+    "project": { "id": "…", "name": "…" }, "area": { "id": "…", "name": "…" }
+  }]
+}
+```
+
+- Datum als lokales `YYYY-MM-DD`. Im Logbuch zusaetzlich `completion_date`.
+- Der Bereich eines Todos in einem Projekt ist der Bereich des Projekts.
+- Tag, Projekt, Bereich und Suche liefern nur offene Todos. Erledigtes fuehrt Things nur im Logbuch.
+- Unbekannter Tag, Projekt oder Bereich: Fehler `tag_not_found`, `project_not_found`, `area_not_found`. Mehrere Projekte gleichen Namens: `project_ambiguous` mit den IDs.
+- Laufzeiten (gemessen mit rund 2.000 offenen Todos und 43.000 im Logbuch): Listen 0,5 bis 1,2 s, Tag mit 84 Todos 3 s, Logbuch mit 20 Eintraegen 2 s.
+- Listen werden ueber feste IDs angesprochen (`TMTodayListSource` usw.), weil die Namen lokalisiert sind.
+
+### evaluate, show, search, version
+
+- `evaluate`: `id` oder `url` (`things:///show?id=…`), liefert das Element als JSON. Datumswerte dort in UTC (`toISOString`), Mitternacht MEZ erscheint als Vortag 23:00 Z. Die Lesewerkzeuge rechnen lokal.
+- `show`: `id` (auch eingebaute Listen wie `today`) oder `query`, dazu `filter` (Tags). Oeffnet nur die Oberflaeche.
+- `search`: `query`. Oeffnet nur die Oberflaeche.
+- `version`: oeffnet `things:///version`.
+
+## Entwicklung
+
+```
+src/
+  index.ts        Server, CLI-Flags, Startpruefung
+  tools/          ein Modul je Werkzeug, tools/index.ts registriert alle
+  schemas.ts      Zod-Schemas
+  urls.ts         reine URL-Bauer
+  payloads.ts     JSON fuer things:///json
+  things-url.ts   thingsQuery: Leerzeichen als %20
+  when.ts         Pruefung von when
+  opener.ts       URL oeffnen: open, mit Token per stdin an osascript
+  auth.ts         Token nur aus THINGS_AUTH_TOKEN
+  read.ts         Lesen ueber things-read.jxa
+  paths.ts        Pfade zu den JXA-Skripten
+scripts/
+  things-read.jxa         Lesewerkzeuge
+  things-evaluate-url.jxa evaluate
+  probe-things.sh         Probe gegen echtes Things
+test/                     Vitest
+```
+
+Befehle:
+
+```bash
+pnpm test          # baut mit tsc, dann vitest
+pnpm lint
+pnpm type-check
+pnpm format:check
+```
+
+Tests:
+- `urls`, `payloads`, `when`: die echten Funktionen aus `src`.
+- `server`, `token`, `when`, `read`: starten `dist/index.js` als MCP-Server ueber stdio. `open` und `osascript` sind im `PATH` durch Mitschreiber ersetzt, Things wird nicht angefasst.
+- `read`: Leser mit Ersatz-osascript, dazu der Selbsttest von `things-read.jxa` ohne Things.
+- `token`: Sentinel-Wert in `THINGS_AUTH_TOKEN`, darf in keiner Antwort, Fehlermeldung, stderr oder Prozessargument auftauchen.
+
+Probe gegen echtes Things (legt an, liest zurueck, loescht alles wieder in den Papierkorb):
+
+```bash
+scripts/probe-things.sh
+```
+
+Mit `update`-Schritt:
+
+```bash
+op run --env-file="$HOME/.config/things-mcp/op.env" -- scripts/probe-things.sh
+```
+
+CI (GitHub Actions, macOS, Node 18/20/22): lint, type-check, test, build, format-check. Laeuft fuer alle PRs, auch gestapelte.
+
+## Abweichungen vom Upstream
+
+- Leerzeichen gehen als `%20` an Things, nicht als `+` (jimfilippou/things-mcp#4, Fix aus #2). Upstream-PR: [kevinberny/things-mcp#1](https://github.com/kevinberny/things-mcp/pull/1).
+- `evaluate` startet `osascript` per `execFile` statt `exec`, `$(...)` in einer ID wird nicht mehr ausgefuehrt.
+- Kein Parameter `auth-token`, Token nur aus der Umgebung, URLs mit Token per stdin.
+- Lesewerkzeuge `list-todos`, `todos-by-tag`, `todos-by-project`, `todos-by-area`, `search-todos`.
+- `when` prueft Datumsangaben.
+- Ein Modul je Werkzeug, URL-Bau in reinen Funktionen, Tests gegen `src` und `dist`.
+
+## Fehlerbehebung
+
+| Meldung oder Verhalten | Ursache | Abhilfe |
 |---|---|---|
-| `list-todos` | `list`: inbox, today, upcoming, anytime, someday, logbook; `limit` | Todos der eingebauten Liste, Logbuch neueste zuerst (Standard 20) |
-| `todos-by-tag` | `tag` (genauer Name); `limit` | offene Todos mit dem Tag, `tag_not_found` wenn es ihn nicht gibt |
-| `todos-by-project` | `id` oder `name`; `limit` | offene Todos des Projekts |
-| `todos-by-area` | `id` oder `name`; `include-projects` (Standard true); `limit` | offene Todos des Bereichs und seiner Projekte |
-| `search-todos` | `query`; `limit` | offene Todos, deren Titel oder Notiz den Text enthaelt |
-
-Antwort (JSON als Text): `{ source, total, returned, truncated, todos: [...] }`, je Todo `id`, `name`, `notes`, `status`, `activation_date`, `due_date` (lokales Datum `YYYY-MM-DD`), `tags`, `project` und `area` (je `{ id, name }` oder `null`), im Logbuch zusaetzlich `completion_date`. Der Bereich eines Todos in einem Projekt ist der Bereich des Projekts. `limit` 1 bis 500, Standard 50.
-
-Grenzen: Tag, Projekt, Bereich und Suche liefern nur offene Todos, Things fuehrt Erledigtes nur im Logbuch. Das Logbuch (hier rund 43.000 Eintraege) kostet rund 2 s fuer 20 Eintraege, eine Volltextsuche darin gibt es deshalb nicht. Listen werden ueber feste IDs angesprochen (`TMTodayListSource` usw.), weil die Namen lokalisiert sind.
-
-### Token ueber 1Password
-
-`update`, `update-project` und `restructure-project` brauchen das Things-URL-Token, `json` und `create-structured-project` nur fuer Updates. Der Server liest es nur aus `THINGS_AUTH_TOKEN`, kein Werkzeug hat einen Parameter `auth-token`. Meldungen nennen nur den Variablennamen, nie den Wert (`test/token.test.ts`).
-
-Einrichten, einmalig:
-
-1. Das Token liegt in 1Password unter `op://NT-Brain/infra-api-keys/THINGS_AUTH_TOKEN` (Things → Einstellungen → Allgemein → Things-URLs aktivieren → Verwalten). Neu setzen nur in der 1Password-App, nicht per `op item edit ... THINGS_AUTH_TOKEN=<wert>`: dann steht der Wert in Prozessliste und Shell-Historie. Rotation nach Lex Clavis.
-2. Referenzdatei anlegen, sie enthaelt nur den Verweis, keinen Wert:
-   ```bash
-   mkdir -p ~/.config/things-mcp && printf '%s\n' 'THINGS_AUTH_TOKEN=op://NT-Brain/infra-api-keys/THINGS_AUTH_TOKEN' > ~/.config/things-mcp/op.env
-   ```
-3. MCP-Konfiguration (Pfad zu `op` absolut, GUI-Apps kennen den Homebrew-PATH nicht):
-   ```json
-   "things": {
-     "command": "/opt/homebrew/bin/op",
-     "args": ["run", "--env-file=/Users/<nutzer>/.config/things-mcp/op.env", "--", "node", "<checkout>/dist/index.js"]
-   }
-   ```
-   `op run` loest den Verweis beim Start auf (Touch ID) und gibt das Token nur als Umgebungsvariable an `node`. Ausgaben, die den Wert enthalten, maskiert `op run` zusaetzlich. Gemessen: MCP ueber stdio laeuft durch `op run` unveraendert, der Start dauert rund 7 s statt unter 1 s.
-
-Pruefen ohne den Wert zu sehen (Stand 2026-10-16: 22 Zeichen, sha256-12 `4dce2791ce8e`):
-```bash
-op run --env-file="$HOME/.config/things-mcp/op.env" -- sh -c 'printf %s "$THINGS_AUTH_TOKEN" | shasum -a 256 | cut -c1-12'
-```
-
-Wo das Token sichtbar ist (gemessen 2026-10-16, macOS 27.0.1, `scripts/probe-things.sh` Schritt 3):
-- Prozessargumente sind unter macOS fuer alle lokalen Nutzer lesbar (`ps -axww -o args`). Upstream gibt jede URL als Argument an `open`, mit Token also auch das Token, etwa 70 bis 100 ms lang. Dieser Fork gibt URLs mit `auth-token` deshalb per stdin an `osascript`, das sie ueber `NSWorkspace` oeffnet (`src/opener.ts`). Die Probe startet beide Wege und liest sofort `ps -p <pid>`: `open` zeigt die URL, der stdin-Weg nicht.
-- Umgebungsvariablen zeigt `ps` ohne root nicht, auch nicht fuer eigene Prozesse. root und Endpoint-Security-Werkzeuge sehen sie.
-- URLs ohne Token gehen weiter an `open`.
-
-Echter Lauf mit Token: `op run --env-file="$HOME/.config/things-mcp/op.env" -- scripts/probe-things.sh`. Schritt 5 aendert das Probe-Todo per `update` und prueft, dass das Token in keiner Antwort steht. Ohne Token wird der Schritt uebersprungen.
-
-## Features
-
-- ✅ **Full Things URL Scheme Support** - Complete implementation of all Things URL commands
-- ✅ **Create Todos** - Add single or multiple todos with rich metadata
-- ✅ **Create Projects** - Build projects with nested todos and organization
-- ✅ **Update Items** - Modify existing todos and projects
-- ✅ **Smart Scheduling** - Support for natural language dates and times
-- ✅ **Advanced Organization** - Tags, areas, headings, and checklist items
-- ✅ **JSON Operations** - Complex batch operations via JSON
-- ✅ **Search & Navigation** - Find and show specific items or lists
-- ✅ **Proper URL Encoding** - Handles special characters and spaces correctly
-
-## Prerequisites
-
-- **macOS** - Required for Things app integration
-- **Things 3** - The Things app must be installed and running
-- **Node.js** - Version 16 or higher
-- **MCP Client** - Such as Claude Desktop app or any MCP-compatible client
-
-## Installation
-
-### Using npx (Recommended)
-
-No installation required! Use directly with:
-
-```bash
-npx things-mcp
-```
-
-### Global Installation
-
-```bash
-npm install -g things-mcp
-```
-
-## Configuration
-
-### Claude Desktop
-
-Add the server to your Claude Desktop configuration file:
-
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-
-**Using npx (recommended):**
-
-```json
-{
-  "mcpServers": {
-    "things": {
-      "command": "npx",
-      "args": ["-y", "things-mcp"]
-    }
-  }
-}
-```
-
-**Using global installation:**
-
-```json
-{
-  "mcpServers": {
-    "things": {
-      "command": "things-mcp"
-    }
-  }
-}
-```
-
-## Usage
-
-Once configured, you can interact with Things through your MCP client using natural language. Here are some examples:
-
-### Creating Todos
-
-```
-"Create a todo to buy groceries for tonight"
-"Add a todo 'Call dentist' with a deadline of next Friday"
-"Create multiple todos: milk, bread, eggs in my Shopping project"
-```
-
-### Creating Projects
-
-```
-"Create a project called 'Website Redesign' in my Work area"
-"Make a project 'Vacation Planning' with todos: book flights, reserve hotel, research activities"
-```
-
-### Updating Items
-
-```
-"Update my 'Call dentist' todo to be due tomorrow"
-"Add notes to my website project about the new color scheme"
-"Mark the groceries todo as completed"
-```
-
-### Organization
-
-```
-"Show my Today list"
-"Search for all todos tagged with 'urgent'"
-"Open the Someday list filtered by work tags"
-```
-
-## Available Commands
-
-### add-todo
-
-Create a new todo with extensive customization options:
-
-- **title/titles** - Single title or multiple titles separated by newlines
-- **notes** - Rich text notes (max 10,000 characters)
-- **when** - today, tomorrow, evening, anytime, someday, fixed date `YYYY-MM-DD`, date with reminder `YYYY-MM-DD@HH:MM`, or English natural language (`in 3 days`). Invalid dates such as `2026-02-30` or `01.11.2026` are rejected before anything is sent to Things
-- **deadline** - Due dates with natural language support
-- **tags** - Array of tag names for organization
-- **checklist-items** - Subtasks within the todo
-- **list/list-id** - Project or area assignment
-- **heading/heading-id** - Specific heading within projects
-- **completed/canceled** - Set completion status
-- **show-quick-entry** - Show quick entry dialog
-- **reveal** - Navigate to created todo
-
-### add-project
-
-Create a new project with full configuration:
-
-- **title** - Project name
-- **notes** - Project description
-- **when** - Same values as for add-todo, including `YYYY-MM-DD`
-- **deadline** - Project due date
-- **tags** - Organization tags
-- **area/area-id** - Area assignment
-- **to-dos** - Array of todo titles to create within project
-- **completed/canceled** - Project status
-- **reveal** - Navigate to created project
-
-### create-structured-project
-
-Build fully-structured projects (real headings, nested todos, checklists) in a single call:
-
-- **project** - Structured definition including headings and `to-do` entries
-- **reveal** *(optional)* - Jump into the newly created project after creation
-
-Example payload:
-
-```json
-{
-  "title": "Whole Foods Shopping",
-  "items": [
-    {
-      "type": "heading",
-      "title": "Produce",
-      "items": [
-        { "type": "to-do", "title": "½ lb baby potatoes" },
-        { "type": "to-do", "title": "2 avocados", "when": "today" }
-      ]
-    },
-    {
-      "type": "heading",
-      "title": "Dairy, Eggs & Cheese",
-      "items": [
-        { "type": "to-do", "title": "12 large eggs" }
-      ]
-    }
-  ]
-}
-```
-
-### update
-
-Modify existing todos:
-
-- **id** - Todo ID (required)
-- **title** - New title
-- **notes/prepend-notes/append-notes** - Note modifications
-- **when** - Reschedule, same values as for add-todo
-- **deadline** - Change due date
-- **tags/add-tags** - Tag management
-- **checklist-items** - Modify checklist
-- **list/heading** - Move to different location
-- **completed/canceled** - Status changes
-- **duplicate** - Create copy before updating
-
-### update-project
-
-Modify existing projects with similar options to update command.
-
-### restructure-project
-
-Rebuild the structure of an existing project—create/rename headings and re-home todos in one batch:
-
-- **project-id** - Project identifier from Share → Copy Link
-- **layout** - Ordered blocks describing headings and unsectioned todos
-
-Example layout:
-
-```json
-[
-  { "type": "unsectioned", "items": ["ABC123"] },
-  {
-    "type": "heading",
-    "title": "Design",
-    "items": ["DEF456", "GHI789"]
-  }
-]
-```
-
-### show
-
-Navigate to specific items or lists:
-
-- **id** - Specific item ID or built-in list (inbox, today, anytime, etc.)
-- **query** - Search by name
-- **filter** - Filter by tags
-
-### search
-
-Search across all Things data:
-
-- **query** - Search terms
-
-### evaluate
-
-Inspect any Things item (to-do, project, heading, area, tag) and return its fields as structured JSON:
-
-- **id** - Things object identifier from Share → Copy Link
-- **url** - Full Things URL (e.g. `things:///show?id=<ID>`) — do not send both `id` and `url`
-
-Requires macOS automation permissions for Things. The server shells out to `scripts/things-evaluate-url.jxa`, so make sure that script is executable (`chmod +x`). The result comes back as `json` content you can feed into downstream tools.
-
-### json
-
-Advanced batch operations using JSON format for complex project structures.
-
-### Read tools (fork)
-
-`list-todos`, `todos-by-tag`, `todos-by-project`, `todos-by-area`, `search-todos` return todo data as JSON instead of opening the Things UI. See "Lesen" in the fork section.
-
-### version
-
-Get Things app and URL scheme version information.
-
-## Authorization
-
-Some operations (updates) require an authorization token from Things:
-
-1. **macOS**: Things → Settings → General → Enable Things URLs → Manage
-2. **iOS**: Settings → General → Things URLs
-
-The server reads the token only from the `THINGS_AUTH_TOKEN` environment variable. No tool takes an `auth-token` parameter, so the token never passes through the model or the MCP client log.
-
-### Using THINGS_AUTH_TOKEN
-
-Do not paste the token into the MCP config file. Inject it at start with 1Password `op run`, see "Token ueber 1Password" in the fork section above.
-
-## Getting Item IDs
-
-To update specific items, you need their IDs:
-
-### macOS
-
-- Control-click on todo/project → Share → Copy Link
-- Control-click on list in sidebar → Share → Copy Link
-
-### iOS
-
-- Tap todo/project → toolbar → Share → Copy Link
-- Navigate to list → top right → Share → Copy Link
-
-## Error Handling
-
-The server includes comprehensive error handling:
-
-- Invalid parameters are caught by Zod validation
-- Things URL failures are reported with clear messages
-- Missing authorization tokens are detected
-- Network and system errors are handled gracefully
-
-## Examples
-
-### Basic Todo Creation
-
-```javascript
-// Creates a simple todo
-{
-  "title": "Buy milk",
-  "when": "today",
-  "tags": ["groceries"]
-}
-```
-
-### Complex Project Creation
-
-```javascript
-// Creates a project with multiple todos and organization
-{
-  "title": "Plan Birthday Party",
-  "area": "Personal",
-  "when": "next week",
-  "to-dos": [
-    "Send invitations",
-    "Order cake",
-    "Buy decorations",
-    "Plan menu"
-  ],
-  "tags": ["family", "celebration"],
-  "reveal": true
-}
-```
-
-### JSON Batch Operation
-
-```javascript
-// Complex structure with headings and nested todos
-{
-  "data": JSON.stringify([
-    {
-      "type": "project",
-      "attributes": {
-        "title": "Website Redesign",
-        "area": "Work",
-        "items": [
-          {
-            "type": "heading",
-            "attributes": { "title": "Design Phase" }
-          },
-          {
-            "type": "to-do",
-            "attributes": {
-              "title": "Create wireframes",
-              "when": "today"
-            }
-          }
-        ]
-      }
-    }
-  ])
-}
-```
-
-## Troubleshooting
-
-### Things Not Opening
-
-- Ensure Things 3 is installed and updated
-- Check that Things URLs are enabled in settings
-- Verify the MCP server is running correctly
-
-### Authorization Errors
-
-- Get your auth token from Things settings
-- Start the server with `THINGS_AUTH_TOKEN` in its environment (there is no `auth-token` parameter)
-- Ensure token is copied correctly without extra spaces
-
-### Connection Issues
-
-- Restart Claude Desktop or your MCP client
-- Check the configuration file syntax
-- Look for errors in client logs
-
-## Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Submit a pull request
-
-## Credits
-
-This project is based on the original [things-mcp](https://github.com/jimfilippou/things-mcp) by [Dimitrios Filippou](https://github.com/jimfilippou). This fork includes additional security improvements, comprehensive testing, linting, and CI/CD enhancements.
-
-## License
-
-MIT License - see LICENSE file for details.
-
-## Related
-
-- [Things URL Scheme Documentation](https://culturedcode.com/things/support/articles/2803573/)
-- [Model Context Protocol](https://modelcontextprotocol.io/)
-- [Claude Desktop](https://claude.ai/desktop)
-
-## Support
-
-- 🐛 **Bug Reports**: Open an issue on GitHub
-- 💡 **Feature Requests**: Open an issue with enhancement label
-- 📚 **Documentation**: Check the Things URL scheme docs
-- 💬 **Questions**: Open a discussion on GitHub
+| `THINGS_AUTH_TOKEN is not set` | Server ohne Token gestartet | Start ueber `op run`, siehe [Einrichten](#einrichten) |
+| Things meldet ungueltiges Token | Token in Things neu erzeugt | 1Password-Eintrag aktualisieren, Server neu starten |
+| `tag_not_found` | Tag existiert in Things nicht | Tag in Things anlegen oder Namen pruefen |
+| `Invalid date ... for when` | kein `YYYY-MM-DD` oder kein echter Tag | Format pruefen |
+| Leerzeichen als `+` in Things | alter Server per `npx` | Konfiguration auf diesen Checkout umstellen |
+| `JXA script not found` beim Start | `scripts/` fehlt neben `dist/` | im Checkout bauen, nicht `dist/` allein kopieren |
+| Start dauert rund 7 s | `op run` fragt 1Password | normal |
+
+## Lizenz und Dank
+
+Ursprung: [things-mcp](https://github.com/jimfilippou/things-mcp) von Dimitrios Filippou, erweitert von [Kevin Berny](https://github.com/kevinberny/things-mcp).
+
+Lizenz offen: `package.json` nennt ISC, die fruehere readme MIT, eine LICENSE-Datei fehlt. Vor einer Veroeffentlichung beim Upstream klaeren.

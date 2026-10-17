@@ -11,9 +11,18 @@ import path from "path";
 
 export const distEntry = path.resolve(__dirname, "../../dist/index.js");
 
+function stub(dir: string, name: string, body: string) {
+  const file = path.join(dir, name);
+  writeFileSync(file, `#!/bin/sh\n${body}\n`);
+  chmodSync(file, 0o755);
+}
+
 export interface Harness {
   client: Client;
   openedUrls: () => string[];
+  osascriptArgs: () => string;
+  osascriptStdin: () => string[];
+  stderr: () => string;
   close: () => Promise<void>;
 }
 
@@ -24,10 +33,16 @@ export async function startServer(extraEnv: Record<string, string> = {}): Promis
 
   const dir = mkdtempSync(path.join(tmpdir(), "things-mcp-test-"));
   const log = path.join(dir, "open.log");
-  writeFileSync(log, "");
-  const stub = path.join(dir, "open");
-  writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$1" >> "${log}"\n`);
-  chmodSync(stub, 0o755);
+  const osaArgs = path.join(dir, "osascript.args");
+  const osaStdin = path.join(dir, "osascript.stdin");
+  for (const file of [log, osaArgs, osaStdin]) writeFileSync(file, "");
+  stub(dir, "open", `printf '%s\\n' "$1" >> "${log}"`);
+  // URLs mit Token gehen per stdin an osascript (src/opener.ts).
+  stub(
+    dir,
+    "osascript",
+    `printf '%s\\n' "$@" >> "${osaArgs}"; cat >> "${osaStdin}"; printf '\\n' >> "${osaStdin}"`
+  );
 
   const env: Record<string, string> = {
     PATH: `${dir}:/usr/bin:/bin`,
@@ -41,12 +56,19 @@ export async function startServer(extraEnv: Record<string, string> = {}): Promis
     env,
     stderr: "pipe",
   });
+  let stderrText = "";
+  transport.stderr?.on("data", (chunk: Buffer) => {
+    stderrText += chunk.toString();
+  });
   const client = new Client({ name: "things-mcp-test", version: "0.0.0" });
   await client.connect(transport);
 
   return {
     client,
     openedUrls: () => readFileSync(log, "utf8").split("\n").filter(Boolean),
+    osascriptArgs: () => readFileSync(osaArgs, "utf8"),
+    osascriptStdin: () => readFileSync(osaStdin, "utf8").split("\n").filter(Boolean),
+    stderr: () => stderrText,
     close: () => client.close(),
   };
 }

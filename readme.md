@@ -12,6 +12,7 @@ Abweichungen vom Upstream:
 - `evaluate` startet `osascript` per `execFile` statt `exec`. Die ID oder URL geht als Argument, nicht durch eine Shell.
 - URL-Bau steckt in reinen Funktionen (`src/urls.ts`, `src/payloads.ts`), die Tests importieren sie aus `src`. `test/server.test.ts` startet `dist/index.js` als MCP-Server und faengt die URLs an `open` ab. `pnpm test` baut vorher.
 - Probe gegen echtes Things: `scripts/probe-things.sh` legt ueber `dist/index.js` ein Todo an, liest es per AppleScript zurueck und loescht es wieder.
+- Kein Werkzeug-Parameter `auth-token` mehr, Token nur aus `THINGS_AUTH_TOKEN`. URLs mit Token gehen per stdin an `osascript` statt als Argument an `open` (siehe Token ueber 1Password).
 
 Bauen und einbinden:
 
@@ -19,7 +20,38 @@ Bauen und einbinden:
 pnpm install --frozen-lockfile && pnpm run build
 ```
 
-MCP-Konfiguration: `"command": "node", "args": ["<checkout>/dist/index.js"]`. Fuer `update` und `update-project` braucht der Server `THINGS_AUTH_TOKEN` (Things → Einstellungen → Allgemein → Things-URLs aktivieren).
+MCP-Konfiguration ohne Token: `"command": "node", "args": ["<checkout>/dist/index.js"]`. Dann laufen alle Werkzeuge ausser `update`, `update-project` und `restructure-project`.
+
+### Token ueber 1Password
+
+`update`, `update-project` und `restructure-project` brauchen das Things-URL-Token, `json` und `create-structured-project` nur fuer Updates. Der Server liest es nur aus `THINGS_AUTH_TOKEN`, kein Werkzeug hat einen Parameter `auth-token`. Meldungen nennen nur den Variablennamen, nie den Wert (`test/token.test.ts`).
+
+Einrichten, einmalig:
+
+1. Things → Einstellungen → Allgemein → Things-URLs aktivieren → Verwalten, Token kopieren.
+2. In der 1Password-App einen Eintrag anlegen, Kategorie API-Zugangsdaten, Titel `Things URL Token`, Tresor `Personal`, Token ins Feld `credential` einfuegen. Nicht per `op item create ... credential=<wert>`: dann steht der Wert in Prozessliste und Shell-Historie.
+3. Referenzdatei anlegen, sie enthaelt nur den Verweis, keinen Wert:
+   ```bash
+   mkdir -p ~/.config/things-mcp && printf '%s\n' 'THINGS_AUTH_TOKEN=op://Personal/Things URL Token/credential' > ~/.config/things-mcp/op.env
+   ```
+4. MCP-Konfiguration (Pfad zu `op` absolut, GUI-Apps kennen den Homebrew-PATH nicht):
+   ```json
+   "things": {
+     "command": "/opt/homebrew/bin/op",
+     "args": ["run", "--env-file=/Users/<nutzer>/.config/things-mcp/op.env", "--", "node", "<checkout>/dist/index.js"]
+   }
+   ```
+   `op run` loest den Verweis beim Start auf (Touch ID) und gibt das Token nur als Umgebungsvariable an `node`. Ausgaben, die den Wert enthalten, maskiert `op run` zusaetzlich.
+
+Pruefen ohne den Wert zu sehen:
+```bash
+op run --env-file="$HOME/.config/things-mcp/op.env" -- sh -c 'printf %s "$THINGS_AUTH_TOKEN" | shasum -a 256 | cut -c1-12'
+```
+
+Wo das Token sichtbar ist (gemessen 2026-10-16, macOS 27.0.1, `scripts/probe-things.sh` Schritt 3):
+- Prozessargumente sind unter macOS fuer alle lokalen Nutzer lesbar (`ps -axww -o args`). Upstream gibt jede URL als Argument an `open`, mit Token also auch das Token, etwa 70 bis 100 ms lang. Dieser Fork gibt URLs mit `auth-token` deshalb per stdin an `osascript`, das sie ueber `NSWorkspace` oeffnet (`src/opener.ts`). Die Probe startet beide Wege und liest sofort `ps -p <pid>`: `open` zeigt die URL, der stdin-Weg nicht.
+- Umgebungsvariablen zeigt `ps` ohne root nicht, auch nicht fuer eigene Prozesse. root und Endpoint-Security-Werkzeuge sehen sie.
+- URLs ohne Token gehen weiter an `open`.
 
 ## Features
 
@@ -161,7 +193,6 @@ Create a new project with full configuration:
 Build fully-structured projects (real headings, nested todos, checklists) in a single call:
 
 - **project** - Structured definition including headings and `to-do` entries
-- **auth-token** *(optional)* - Required if the payload performs update operations (omit when `THINGS_AUTH_TOKEN` env var is set)
 - **reveal** *(optional)* - Jump into the newly created project after creation
 
 Example payload:
@@ -194,7 +225,6 @@ Example payload:
 Modify existing todos:
 
 - **id** - Todo ID (required)
-- **auth-token** - Authorization token (omit if `THINGS_AUTH_TOKEN` env var is set)
 - **title** - New title
 - **notes/prepend-notes/append-notes** - Note modifications
 - **when** - Reschedule
@@ -214,7 +244,6 @@ Modify existing projects with similar options to update command.
 Rebuild the structure of an existing project—create/rename headings and re-home todos in one batch:
 
 - **project-id** - Project identifier from Share → Copy Link
-- **auth-token** - Required for batch updates (omit if `THINGS_AUTH_TOKEN` env var is set)
 - **layout** - Ordered blocks describing headings and unsectioned todos
 
 Example layout:
@@ -268,33 +297,11 @@ Some operations (updates) require an authorization token from Things:
 1. **macOS**: Things → Settings → General → Enable Things URLs → Manage
 2. **iOS**: Settings → General → Things URLs
 
-Copy your unique token and use it with update operations.
+The server reads the token only from the `THINGS_AUTH_TOKEN` environment variable. No tool takes an `auth-token` parameter, so the token never passes through the model or the MCP client log.
 
 ### Using THINGS_AUTH_TOKEN
 
-To avoid passing the token with every command, set `THINGS_AUTH_TOKEN` in your MCP server configuration or shell environment.
-
-**Claude Desktop example:**
-
-```json
-{
-  "mcpServers": {
-    "things": {
-      "command": "npx",
-      "args": ["-y", "things-mcp"],
-      "env": {
-        "THINGS_AUTH_TOKEN": "paste-your-token-here"
-      }
-    }
-  }
-}
-```
-
-Or export it before launching your client:
-
-```bash
-export THINGS_AUTH_TOKEN="paste-your-token-here"
-```
+Do not paste the token into the MCP config file. Inject it at start with 1Password `op run`, see "Token ueber 1Password" in the fork section above.
 
 ## Getting Item IDs
 
@@ -392,7 +399,7 @@ The server includes comprehensive error handling:
 ### Authorization Errors
 
 - Get your auth token from Things settings
-- Include auth-token parameter for update operations (or set `THINGS_AUTH_TOKEN`)
+- Start the server with `THINGS_AUTH_TOKEN` in its environment (there is no `auth-token` parameter)
 - Ensure token is copied correctly without extra spaces
 
 ### Connection Issues

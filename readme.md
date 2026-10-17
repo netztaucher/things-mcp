@@ -12,6 +12,8 @@ Abweichungen vom Upstream:
 - `evaluate` startet `osascript` per `execFile` statt `exec`. Die ID oder URL geht als Argument, nicht durch eine Shell.
 - URL-Bau steckt in reinen Funktionen (`src/urls.ts`, `src/payloads.ts`), die Tests importieren sie aus `src`. `test/server.test.ts` startet `dist/index.js` als MCP-Server und faengt die URLs an `open` ab. `pnpm test` baut vorher.
 - Probe gegen echtes Things: `scripts/probe-things.sh` legt ueber `dist/index.js` ein Todo an, liest es per AppleScript zurueck und loescht es wieder.
+- `when` nimmt ausdruecklich ein festes Datum `YYYY-MM-DD` und `YYYY-MM-DD@HH:MM` (Erinnerung). Was wie ein Datum aussieht, wird vorher geprueft (`src/when.ts`): `2026-02-30`, `01.11.2026` oder ISO-Zeitstempel gehen nicht mehr still an Things. Stichworte und englischer Freitext laufen wie bisher durch.
+- Ein Modul je Werkzeug unter `src/tools/`, `src/index.ts` startet nur noch den Server.
 - Kein Werkzeug-Parameter `auth-token` mehr, Token nur aus `THINGS_AUTH_TOKEN`. URLs mit Token gehen per stdin an `osascript` statt als Argument an `open` (siehe Token ueber 1Password).
 
 Bauen und einbinden:
@@ -164,7 +166,7 @@ Create a new todo with extensive customization options:
 
 - **title/titles** - Single title or multiple titles separated by newlines
 - **notes** - Rich text notes (max 10,000 characters)
-- **when** - Natural language scheduling (today, tomorrow, evening, specific dates)
+- **when** - today, tomorrow, evening, anytime, someday, fixed date `YYYY-MM-DD`, date with reminder `YYYY-MM-DD@HH:MM`, or English natural language (`in 3 days`). Invalid dates such as `2026-02-30` or `01.11.2026` are rejected before anything is sent to Things
 - **deadline** - Due dates with natural language support
 - **tags** - Array of tag names for organization
 - **checklist-items** - Subtasks within the todo
@@ -180,7 +182,7 @@ Create a new project with full configuration:
 
 - **title** - Project name
 - **notes** - Project description
-- **when** - Scheduling options
+- **when** - Same values as for add-todo, including `YYYY-MM-DD`
 - **deadline** - Project due date
 - **tags** - Organization tags
 - **area/area-id** - Area assignment
@@ -227,7 +229,7 @@ Modify existing todos:
 - **id** - Todo ID (required)
 - **title** - New title
 - **notes/prepend-notes/append-notes** - Note modifications
-- **when** - Reschedule
+- **when** - Reschedule, same values as for add-todo
 - **deadline** - Change due date
 - **tags/add-tags** - Tag management
 - **checklist-items** - Modify checklist

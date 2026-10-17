@@ -7,3 +7,4 @@ const __dirname = path.dirname(__filename);
 
 export const evaluateScriptPath = path.resolve(__dirname, "../scripts/things-evaluate-url.jxa");
 export const evaluateBinary = "/usr/bin/osascript";
+export const readScriptPath = path.resolve(__dirname, "../scripts/things-read.jxa");

@@ -248,3 +248,55 @@ export const jsonShape = {
   data: z.string().describe("JSON string containing array of todo and project objects"),
   reveal: z.boolean().optional().describe("Navigate to and show the first created item"),
 };
+
+// Lesewerkzeuge (src/read.ts). Things liefert ueber Tag, Projekt, Bereich und
+// Suche nur offene Todos; Erledigtes steht im Logbuch.
+
+const limitSchema = z
+  .number()
+  .int()
+  .min(1)
+  .max(500)
+  .optional()
+  .describe("Maximum number of todos to return (1-500, default 50, logbook 20)");
+
+export const listTodosShape = {
+  list: z
+    .enum(["inbox", "today", "upcoming", "anytime", "someday", "logbook"])
+    .describe("Built-in Things list. logbook holds completed and canceled todos, newest first"),
+  limit: limitSchema,
+};
+
+export const todosByTagShape = {
+  tag: z.string().min(1).describe("Exact tag name"),
+  limit: limitSchema,
+};
+
+const idOrName = {
+  id: z.string().optional().describe("Things id (from Share → Copy Link)"),
+  name: z.string().optional().describe("Exact title, used when id is not given"),
+};
+
+export const todosByProjectShape = { ...idOrName, limit: limitSchema };
+
+export const todosByAreaShape = {
+  ...idOrName,
+  "include-projects": z
+    .boolean()
+    .optional()
+    .describe("Also return todos inside the area's projects (default true)"),
+  limit: limitSchema,
+};
+
+export const searchTodosShape = {
+  query: z.string().min(1).describe("Text to find in todo title or notes (case-insensitive)"),
+  limit: limitSchema,
+};
+
+export function requireIdOrName(params: { id?: string; name?: string }): void {
+  const hasId = Boolean(params.id);
+  const hasName = Boolean(params.name);
+  if (hasId === hasName) {
+    throw new Error("Provide either id or name, but not both");
+  }
+}

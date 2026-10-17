@@ -12,6 +12,7 @@ Abweichungen vom Upstream:
 - `evaluate` startet `osascript` per `execFile` statt `exec`. Die ID oder URL geht als Argument, nicht durch eine Shell.
 - URL-Bau steckt in reinen Funktionen (`src/urls.ts`, `src/payloads.ts`), die Tests importieren sie aus `src`. `test/server.test.ts` startet `dist/index.js` als MCP-Server und faengt die URLs an `open` ab. `pnpm test` baut vorher.
 - Probe gegen echtes Things: `scripts/probe-things.sh` legt ueber `dist/index.js` ein Todo an, liest es per AppleScript zurueck und loescht es wieder.
+- Lesewerkzeuge, die Daten zurueckgeben (upstream oeffnen `show` und `search` nur die Things-Oberflaeche): `list-todos`, `todos-by-tag`, `todos-by-project`, `todos-by-area`, `search-todos`. Siehe Lesen.
 - `when` nimmt ausdruecklich ein festes Datum `YYYY-MM-DD` und `YYYY-MM-DD@HH:MM` (Erinnerung). Was wie ein Datum aussieht, wird vorher geprueft (`src/when.ts`): `2026-02-30`, `01.11.2026` oder ISO-Zeitstempel gehen nicht mehr still an Things. Stichworte und englischer Freitext laufen wie bisher durch.
 - Ein Modul je Werkzeug unter `src/tools/`, `src/index.ts` startet nur noch den Server.
 - Kein Werkzeug-Parameter `auth-token` mehr, Token nur aus `THINGS_AUTH_TOKEN`. URLs mit Token gehen per stdin an `osascript` statt als Argument an `open` (siehe Token ueber 1Password).
@@ -23,6 +24,22 @@ pnpm install --frozen-lockfile && pnpm run build
 ```
 
 MCP-Konfiguration ohne Token: `"command": "node", "args": ["<checkout>/dist/index.js"]`. Dann laufen alle Werkzeuge ausser `update`, `update-project` und `restructure-project`.
+
+### Lesen
+
+Nur lesend, per `osascript` und `scripts/things-read.jxa` (`src/read.ts`). Die Anfrage geht als ein JSON-Argument per `execFile`, nie durch eine Shell.
+
+| Werkzeug | Parameter | Liefert |
+|---|---|---|
+| `list-todos` | `list`: inbox, today, upcoming, anytime, someday, logbook; `limit` | Todos der eingebauten Liste, Logbuch neueste zuerst (Standard 20) |
+| `todos-by-tag` | `tag` (genauer Name); `limit` | offene Todos mit dem Tag, `tag_not_found` wenn es ihn nicht gibt |
+| `todos-by-project` | `id` oder `name`; `limit` | offene Todos des Projekts |
+| `todos-by-area` | `id` oder `name`; `include-projects` (Standard true); `limit` | offene Todos des Bereichs und seiner Projekte |
+| `search-todos` | `query`; `limit` | offene Todos, deren Titel oder Notiz den Text enthaelt |
+
+Antwort (JSON als Text): `{ source, total, returned, truncated, todos: [...] }`, je Todo `id`, `name`, `notes`, `status`, `activation_date`, `due_date` (lokales Datum `YYYY-MM-DD`), `tags`, `project` und `area` (je `{ id, name }` oder `null`), im Logbuch zusaetzlich `completion_date`. Der Bereich eines Todos in einem Projekt ist der Bereich des Projekts. `limit` 1 bis 500, Standard 50.
+
+Grenzen: Tag, Projekt, Bereich und Suche liefern nur offene Todos, Things fuehrt Erledigtes nur im Logbuch. Das Logbuch (hier rund 43.000 Eintraege) kostet rund 2 s fuer 20 Eintraege, eine Volltextsuche darin gibt es deshalb nicht. Listen werden ueber feste IDs angesprochen (`TMTodayListSource` usw.), weil die Namen lokalisiert sind.
 
 ### Token ueber 1Password
 
@@ -287,6 +304,10 @@ Requires macOS automation permissions for Things. The server shells out to `scri
 ### json
 
 Advanced batch operations using JSON format for complex project structures.
+
+### Read tools (fork)
+
+`list-todos`, `todos-by-tag`, `todos-by-project`, `todos-by-area`, `search-todos` return todo data as JSON instead of opening the Things UI. See "Lesen" in the fork section.
 
 ### version
 

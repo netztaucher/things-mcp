@@ -5,10 +5,13 @@
 # Zweiter Teil: startet beide Oeffner-Wege aus dist/opener.js und liest sofort
 # ps -p <pid>. Kontrolle (open, ohne Token) muss die URL zeigen, der stdin-Weg
 # (osascript, Attrappen-Token) nicht. Kein echtes Token noetig.
+# Dritter Teil: liest ueber die Lesewerkzeuge (list-todos, search-todos,
+# todos-by-tag, todos-by-project, todos-by-area) die eben angelegten Todos
+# zurueck. Nutzt einen vorhandenen Tag und Bereich, legt keine neuen an.
 # Things muss laufen. Nur macOS. Aufruf aus dem Checkout: scripts/probe-things.sh
 #
-# Test:     ja - echter Lauf gegen Things 3, Ausgabe im PR (Teil 1 in #2, Token-Weg in #3, Datum in #4) · netztaucher/things-mcp#4
-# Rueckweg: ja - trap loescht alle Probe-Todos (Things-Papierkorb), im Lauf belegt · netztaucher/things-mcp#4
+# Test:     ja - echter Lauf gegen Things 3, Ausgabe im PR (Teil 1 in #2, Token-Weg in #3, Datum in #4, Lesen in #5) · netztaucher/things-mcp#5
+# Rueckweg: ja - trap loescht alle Probe-Todos und das Probe-Projekt (Things-Papierkorb), im Lauf belegt · netztaucher/things-mcp#5
 
 set -euo pipefail
 
@@ -18,6 +21,11 @@ cd "$(dirname "$0")/.."
 STAMP="$(date +%Y%m%d-%H%M%S)"
 TITLE="mcp-probe ${STAMP} a b+c & x"
 TITLE2="mcp-probe mcpprobe${STAMP//-/}tokenweg"
+PROJECT="mcp-probe projekt ${STAMP}"
+PTODO="mcp-probe im projekt ${STAMP}"
+# Vorhandener Tag und Bereich fuer die Lese-Probe, es wird nichts neu angelegt.
+PROBE_TAG="$(osascript -l JavaScript -e 'Application("Things3").tags.name()[0]')"
+PROBE_AREA="$(osascript -l JavaScript -e 'Application("Things3").areas.id()[0]')"
 NOTES="Zeile eins mit Leerzeichen
 Zeile zwei: 100% + mehr"
 # Festes Datum in 40 Tagen, als when YYYY-MM-DD.
@@ -40,7 +48,7 @@ JXA
 
 delete_probe() {
   local ids t
-  for t in "$TITLE" "$TITLE2" "$TITLE2 kontrolle"; do
+  for t in "$TITLE" "$TITLE2" "$TITLE2 kontrolle" "$PTODO"; do
   ids="$(read_back "$t" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).map(t=>t.id).join(" ")))')"
   for id in $ids; do
     osascript -l JavaScript - "$id" <<'JXA' >/dev/null
@@ -52,18 +60,29 @@ JXA
     echo "geloescht: $id"
   done
   done
+  PROBE_NAME="$PROJECT" osascript -l JavaScript <<'JXA'
+function run() {
+  const app = Application.currentApplication();
+  app.includeStandardAdditions = true;
+  const name = app.systemAttribute("PROBE_NAME");
+  const things = Application("Things3");
+  const hits = things.projects.whose({ name: name })();
+  hits.forEach((p) => things.delete(p));
+  return hits.map((p) => "geloescht: Projekt " + p.id()).join("\n");
+}
+JXA
 }
 trap delete_probe EXIT
 
 echo "1. anlegen ueber dist/index.js (add-todo)"
-node --input-type=module - "$TITLE" "$NOTES" "$WHEN" <<'NODE'
+node --input-type=module - "$TITLE" "$NOTES" "$WHEN" "$PROBE_TAG" <<'NODE'
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-const [title, notes, when] = process.argv.slice(2);
+const [title, notes, when, tag] = process.argv.slice(2);
 const transport = new StdioClientTransport({ command: process.execPath, args: ["dist/index.js"] });
 const client = new Client({ name: "probe-things", version: "0" });
 await client.connect(transport);
-const result = await client.callTool({ name: "add-todo", arguments: { title, notes, when } });
+const result = await client.callTool({ name: "add-todo", arguments: { title, notes, when, tags: [tag] } });
 console.log("   Antwort:", result.content[0].text);
 await client.close();
 NODE
@@ -133,4 +152,56 @@ for _ in 1 2 3 4 5; do
 done
 [ "$FOUND2" != "[]" ] && echo "   OK: Things hat das Todo ueber den stdin-Weg angelegt" || { echo "   FEHLER: Todo nicht angelegt"; exit 1; }
 
-echo "4. loeschen (trap)"
+echo "4. lesen ueber dist/index.js: list-todos, search-todos, todos-by-tag, todos-by-project, todos-by-area"
+PROBE_TITLE="$TITLE" PROBE_NOTES="$NOTES" PROBE_WHEN="$WHEN" PROBE_TAG="$PROBE_TAG" PROBE_TITLE2="$TITLE2" \
+PROBE_PROJECT="$PROJECT" PROBE_PTODO="$PTODO" PROBE_AREA="$PROBE_AREA" PROBE_STAMP="$STAMP" \
+node --input-type=module <<'NODE'
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+const e = process.env;
+const client = new Client({ name: "probe-things", version: "0" });
+await client.connect(new StdioClientTransport({ command: process.execPath, args: ["dist/index.js"] }));
+const call = async (name, args) => {
+  const t0 = Date.now();
+  const r = await client.callTool({ name, arguments: args });
+  if (r.isError) throw new Error(`${name}: ${r.content[0].text}`);
+  return { ...JSON.parse(r.content[0].text), ms: Date.now() - t0 };
+};
+let ok = true;
+const check = (label, cond, detail) => {
+  ok &&= cond;
+  console.log(`   ${cond ? "OK" : "FEHLER"} ${label}${detail ? ": " + detail : ""}`);
+};
+await client.callTool({
+  name: "add-project",
+  arguments: { title: e.PROBE_PROJECT, "to-dos": [e.PROBE_PTODO], "area-id": e.PROBE_AREA },
+});
+await new Promise((r) => setTimeout(r, 1500));
+
+const up = await call("list-todos", { list: "upcoming", limit: 500 });
+const t1 = up.todos.find((t) => t.name === e.PROBE_TITLE);
+check("list-todos upcoming", Boolean(t1) && t1.activation_date === e.PROBE_WHEN && t1.notes === e.PROBE_NOTES && t1.status === "open",
+  `${up.returned}/${up.total}, ${up.ms} ms, activation_date ${t1?.activation_date}`);
+const inbox = await call("list-todos", { list: "inbox", limit: 500 });
+check("list-todos inbox", inbox.todos.some((t) => t.name === e.PROBE_TITLE2), `${inbox.returned}/${inbox.total}, ${inbox.ms} ms`);
+const lb = await call("list-todos", { list: "logbook" });
+check("list-todos logbook", lb.returned === Math.min(20, lb.total) && lb.todos.every((t) => t.status !== "open" && t.completion_date),
+  `${lb.returned}/${lb.total}, ${lb.ms} ms`);
+const found = await call("search-todos", { query: e.PROBE_STAMP });
+check("search-todos", found.todos.some((t) => t.name === e.PROBE_TITLE), `${found.total} Treffer, ${found.ms} ms`);
+const tagged = await call("todos-by-tag", { tag: e.PROBE_TAG, limit: 500 });
+const t2 = tagged.todos.find((t) => t.name === e.PROBE_TITLE);
+check("todos-by-tag", Boolean(t2) && t2.tags.includes(e.PROBE_TAG), `Tag ${JSON.stringify(e.PROBE_TAG)}, ${tagged.total} Todos, ${tagged.ms} ms`);
+const proj = await call("todos-by-project", { name: e.PROBE_PROJECT });
+const t3 = proj.todos.find((t) => t.name === e.PROBE_PTODO);
+check("todos-by-project", Boolean(t3) && t3.project?.name === e.PROBE_PROJECT && t3.area?.id === e.PROBE_AREA,
+  `${proj.total} Todo, Bereich ${t3?.area?.name}, ${proj.ms} ms`);
+const area = await call("todos-by-area", { id: e.PROBE_AREA, limit: 500 });
+check("todos-by-area", area.todos.some((t) => t.name === e.PROBE_PTODO), `${area.total} Todos, ${area.ms} ms`);
+const noTag = await client.callTool({ name: "todos-by-tag", arguments: { tag: "gibt-es-nicht-" + e.PROBE_STAMP } });
+check("todos-by-tag unbekannter Tag", noTag.isError === true && noTag.content[0].text.includes("tag_not_found"), noTag.content[0].text);
+await client.close();
+process.exit(ok ? 0 : 1);
+NODE
+
+echo "5. loeschen (trap)"

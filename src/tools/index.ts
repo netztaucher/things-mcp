@@ -10,6 +10,11 @@ import { registerSearch } from "./search.js";
 import { registerEvaluate } from "./evaluate.js";
 import { registerVersion } from "./version.js";
 import { registerJson } from "./json.js";
+import { registerListTodos } from "./list-todos.js";
+import { registerTodosByTag } from "./todos-by-tag.js";
+import { registerTodosByProject } from "./todos-by-project.js";
+import { registerTodosByArea } from "./todos-by-area.js";
+import { registerSearchTodos } from "./search-todos.js";
 
 // Reihenfolge wie bisher, sie bestimmt die Reihenfolge in tools/list.
 export function registerTools(server: McpServer): void {
@@ -24,4 +29,10 @@ export function registerTools(server: McpServer): void {
   registerEvaluate(server);
   registerVersion(server);
   registerJson(server);
+  // Lesewerkzeuge
+  registerListTodos(server);
+  registerTodosByTag(server);
+  registerTodosByProject(server);
+  registerTodosByArea(server);
+  registerSearchTodos(server);
 }

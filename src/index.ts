@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Einstieg des MCP-Servers: registriert die Werkzeuge, wertet CLI-Flags aus,
+// prueft beim Start JXA-Skripte und osascript und verbindet ueber stdio.
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

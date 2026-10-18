@@ -1,3 +1,5 @@
+// Registriert alle Werkzeuge am MCP-Server, ein Modul je Werkzeug.
+
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerAddTodo } from "./add-todo.js";
 import { registerAddProject } from "./add-project.js";

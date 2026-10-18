@@ -1,3 +1,5 @@
+// Werkzeug todos-by-tag: liest offene Todos mit einem Tag.
+
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { readResultContent, readTodos } from "../read.js";
 import { todosByTagShape } from "../schemas.js";

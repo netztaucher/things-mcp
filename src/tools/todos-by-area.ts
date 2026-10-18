@@ -1,3 +1,5 @@
+// Werkzeug todos-by-area: liest offene Todos eines Bereichs und seiner Projekte.
+
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { readResultContent, readTodos } from "../read.js";
 import { requireIdOrName, todosByAreaShape } from "../schemas.js";

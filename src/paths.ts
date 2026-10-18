@@ -1,3 +1,5 @@
+// Pfade zu den JXA-Skripten und zu osascript.
+
 import path from "path";
 import { fileURLToPath } from "url";
 

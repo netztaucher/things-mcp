@@ -1,3 +1,5 @@
+// Werkzeug search-todos: liest offene Todos mit dem Suchtext in Titel oder Notiz.
+
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { readResultContent, readTodos } from "../read.js";
 import { searchTodosShape } from "../schemas.js";

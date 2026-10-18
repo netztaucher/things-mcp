@@ -208,6 +208,8 @@ scripts/
 test/                     Vitest
 ```
 
+Jedes Werkzeug hat eine Beschreibung im zweiten Argument von `server.tool()`, `test/descriptions.test.ts` prueft das ueber `tools/list`.
+
 Befehle:
 
 ```bash
@@ -219,8 +221,9 @@ pnpm format:check
 
 Tests:
 - `urls`, `payloads`, `when`: die echten Funktionen aus `src`.
-- `server`, `token`, `when`, `read`: starten `dist/index.js` als MCP-Server ueber stdio. `open` und `osascript` sind im `PATH` durch Mitschreiber ersetzt, Things wird nicht angefasst.
+- `server`, `descriptions`, `token`, `when`, `read`: starten `dist/index.js` als MCP-Server ueber stdio. `open` und `osascript` sind im `PATH` durch Mitschreiber ersetzt, Things wird nicht angefasst.
 - `read`: Leser mit Ersatz-osascript, dazu der Selbsttest von `things-read.jxa` ohne Things.
+- `descriptions`: alle 16 Werkzeuge gemeldet, jedes mit nicht-leerer Beschreibung.
 - `token`: Sentinel-Wert in `THINGS_AUTH_TOKEN`, darf in keiner Antwort, Fehlermeldung, stderr oder Prozessargument auftauchen.
 
 Probe gegen echtes Things (legt an, liest zurueck, loescht alles wieder in den Papierkorb):

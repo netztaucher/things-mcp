@@ -7,11 +7,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { existsSync } from "fs";
 import { evaluateBinary, evaluateScriptPath, readScriptPath } from "./paths.js";
 import { registerTools } from "./tools/index.js";
+import { loadInstructions } from "./instructions.js";
 
-const server = new McpServer({
-  name: "things-mcp",
-  version: "0.1.0",
-});
+const server = new McpServer(
+  {
+    name: "things-mcp",
+    version: "0.1.0",
+  },
+  { instructions: loadInstructions() }
+);
 
 registerTools(server);
 

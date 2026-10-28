@@ -9,6 +9,7 @@ Herkunft: [jimfilippou/things-mcp](https://github.com/jimfilippou/things-mcp) â†
 - [Werkzeuge](#werkzeuge)
 - [Einrichten](#einrichten)
 - [Token](#token)
+- [Sortierregeln](#sortierregeln)
 - [Werkzeuge im Detail](#werkzeuge-im-detail)
 - [Entwicklung](#entwicklung)
 - [Abweichungen vom Upstream](#abweichungen-vom-upstream)
@@ -110,6 +111,16 @@ Warum stdin und Umgebung (gemessen 2026-10-16, macOS 27.0.1):
 - Umgebungsvariablen zeigt `ps` ohne root nicht, auch nicht fuer eigene Prozesse. root und Endpoint-Security-Werkzeuge sehen sie.
 - MCP ueber stdio laeuft durch `op run` unveraendert, der Start dauert rund 7 s statt unter 1 s.
 
+## Sortierregeln
+
+Der Server kann jedem Client beim Verbinden Regeln mitgeben, wie Todos einzusortieren sind (MCP-Feld `instructions`). Die Regeln stehen nicht in diesem oeffentlichen Repo, sondern in einer Datei, deren Pfad `THINGS_MCP_INSTRUCTIONS` nennt.
+
+- Variable fehlt: keine Instructions, Server laeuft wie bisher.
+- Datei fehlt oder ist nicht lesbar: keine Instructions, Server laeuft trotzdem und meldet auf stderr `WARN: THINGS_MCP_INSTRUCTIONS not readable (<code>): <pfad>`.
+- Der Inhalt wird beim Start gelesen. Nach einer Aenderung an der Datei den Client neu starten.
+
+In der NT-Infrastruktur liegt die Datei in NT-Brain unter `core/config/things/sortierregeln.md`, der Eintrag in `core/config/mcps.json` setzt die Variable.
+
 ## Werkzeuge im Detail
 
 ### when und deadline
@@ -199,6 +210,7 @@ src/
   when.ts         Pruefung von when
   opener.ts       URL oeffnen: open, mit Token per stdin an osascript
   auth.ts         Token nur aus THINGS_AUTH_TOKEN
+  instructions.ts Sortierregeln aus THINGS_MCP_INSTRUCTIONS
   read.ts         Lesen ueber things-read.jxa
   paths.ts        Pfade zu den JXA-Skripten
 scripts/
@@ -224,6 +236,7 @@ Tests:
 - `server`, `descriptions`, `token`, `when`, `read`: starten `dist/index.js` als MCP-Server ueber stdio. `open` und `osascript` sind im `PATH` durch Mitschreiber ersetzt, Things wird nicht angefasst.
 - `read`: Leser mit Ersatz-osascript, dazu der Selbsttest von `things-read.jxa` ohne Things.
 - `descriptions`: alle 16 Werkzeuge gemeldet, jedes mit nicht-leerer Beschreibung.
+- `instructions`: `loadInstructions` direkt, dazu ueber stdio, dass der Client den Dateiinhalt bekommt und der Server ohne Datei startet.
 - `token`: Sentinel-Wert in `THINGS_AUTH_TOKEN`, darf in keiner Antwort, Fehlermeldung, stderr oder Prozessargument auftauchen.
 
 Probe gegen echtes Things (legt an, liest zurueck, loescht alles wieder in den Papierkorb):
@@ -247,6 +260,7 @@ CI (GitHub Actions, macOS, Node 18/20/22): lint, type-check, test, build, format
 - Kein Parameter `auth-token`, Token nur aus der Umgebung, URLs mit Token per stdin.
 - Lesewerkzeuge `list-todos`, `todos-by-tag`, `todos-by-project`, `todos-by-area`, `search-todos`.
 - `when` prueft Datumsangaben.
+- Sortierregeln als Server-Instructions aus einer Datei (`THINGS_MCP_INSTRUCTIONS`).
 - Ein Modul je Werkzeug, URL-Bau in reinen Funktionen, Tests gegen `src` und `dist`.
 
 ## Fehlerbehebung

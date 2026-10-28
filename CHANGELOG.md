@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added (netztaucher)
+- Server-Instructions aus der Datei in `THINGS_MCP_INSTRUCTIONS` (Sortierregeln ausserhalb des Repos)
+
 ### Security
 - **Fixed command injection vulnerability** in `openThingsURL()` function
   - Changed from `exec` with string interpolation to `spawn` with array arguments
